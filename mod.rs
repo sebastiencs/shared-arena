@@ -1,10 +1,11 @@
 
-use std::sync::atomic::{AtomicUsize, Ordering, AtomicPtr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::ptr::NonNull;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 
 const NODE_PER_PAGE: usize = 32;
+const WRONG_NODE_INDEX: usize = NODE_PER_PAGE + 1;
 
 struct Node<T: Sized> {
     /// Read only
@@ -12,6 +13,20 @@ struct Node<T: Sized> {
     counter: AtomicUsize,
     next_free: AtomicUsize,
     value: UnsafeCell<T>,
+}
+
+struct IndexInPage(usize);
+
+impl From<usize> for IndexInPage {
+    fn from(n: usize) -> IndexInPage {
+        IndexInPage(n)
+    }
+}
+
+impl From<IndexInPage> for usize {
+    fn from(n: IndexInPage) -> usize {
+        n.0
+    }
 }
 
 struct Page<T: Sized> {
@@ -52,7 +67,7 @@ impl<T: Sized> Page<T> {
         }
     }
 
-    fn next_free(&self) -> Option<&Node<T>> {
+    fn next_free(&self) -> Option<IndexInPage> {
         let freed = self.free.load(Ordering::Acquire);
 
         if freed == 0 {
@@ -69,81 +84,141 @@ impl<T: Sized> Page<T> {
             next_next = self.next(next);
         }
 
-        self.nodes.get(next)
+        self.nodes.get(next).map(|_| next.into())
     }
 }
 
-struct MemPool<T: Sized> {
-    pages: Vec<Page<T>>,
+use std::sync::Arc;
+
+pub struct MemPool<T: Sized> {
+    pages: Vec<Arc<Page<T>>>,
 }
 
 impl<T: Sized> MemPool<T> {
-    fn alloc_new_page(&mut self) -> &Page<T> {
-        self.pages.push(Page::new());
-        self.pages.last().unwrap()
+    fn alloc_new_page(&mut self) -> Arc<Page<T>> {
+        let new_page = Arc::new(Page::new());
+        self.pages.push(new_page.clone());
+        new_page
     }
 
-    fn alloc_place(&mut self) -> (&Page<T>, &Node<T>) {
+    fn find_place(&mut self) -> (Arc<Page<T>>, IndexInPage) {
+        for page in self.pages.iter() {
+            if let Some(node) = page.next_free() {
+                return (page.clone(), node);
+            };
+        }
+
         let new_page = self.alloc_new_page();
         let node = new_page.next_free().unwrap();
 
         (new_page, node)
     }
 
-    fn find_place(&mut self) -> Option<(&Page<T>, &Node<T>)> {
-        for page in self.pages.iter() {
-            if let Some(node) = page.next_free() {
-                return Some((page, node));
-            };
+    pub fn new() -> MemPool<T> {
+        let mut pages = Vec::with_capacity(32);
+        pages.push(Arc::new(Page::new()));
+        MemPool { pages }
+    }
+
+    pub fn check_empty(&self) {
+        for (index, page) in self.pages.iter().enumerate() {
+            println!("PAGE {} FREE {}", index, page.free.load(Ordering::Relaxed));
         }
-        None
     }
 
-    fn alloc(&mut self, value: T) -> Guard<T> {
-        let (page, node) = match self.find_place() {
-            Some(x) => x,
-            _ => self.alloc_place()
-        };
+    pub fn alloc(&mut self, value: T) -> PoolArc<T> {
+        let (page, node) = self.find_place();
 
-        let v = node.value.get();
-        unsafe { std::ptr::write(v, value); }
+        let v = page.nodes[node.0].value.get();
+        unsafe {
+            std::ptr::write(v, value);
+        }
 
-        Guard::new(page, node)
+        PoolArc::new(page, node)
     }
 
-    fn alloc_with<Fun>(&mut self, fun: Fun) -> Guard<T>
+    pub unsafe fn alloc_with<Fun>(&mut self, fun: Fun) -> PoolArc<T>
+    where
+        Fun: Fn(&mut T)
+    {
+        let (page, node) = self.find_place();
+
+        let v = page.nodes[node.0].value.get();
+        fun(&mut *v);
+
+        PoolArc::new(page, node)
+    }
+
+    pub fn alloc_maybeuninit<Fun>(&mut self, fun: Fun) -> PoolArc<T>
     where
         Fun: Fn(&mut MaybeUninit<T>)
     {
-        let (page, node) = match self.find_place() {
-            Some(x) => x,
-            _ => self.alloc_place()
-        };
+        let (page, node) = self.find_place();
 
-        let v = node.value.get();
-        fun(unsafe { std::mem::transmute(v) });
+        let v = page.nodes[node.0].value.get();
+        fun(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
 
-        Guard::new(page, node)
+        PoolArc::new(page, node)
     }
 }
 
-struct Guard<T: Sized> {
-    page: NonNull<Page<T>>,
+impl<T> std::fmt::Debug for MemPool<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let len = self.pages.len();
+        f.debug_struct("MemPool")
+         .field("npages", &len)
+         .finish()
+    }
+}
+
+pub struct PoolArc<T: Sized> {
+    page: Arc<Page<T>>,
     node: NonNull<Node<T>>,
 }
 
-impl<T> Guard<T> {
-    fn new(page: &Page<T>, node: &Node<T>) -> Guard<T> {
-        page.free.fetch_add(1, Ordering::AcqRel);
-        node.counter.fetch_add(1, Ordering::AcqRel);
-        Guard {
-            page: NonNull::from(page),
-            node: NonNull::from(node)
-        }
+unsafe impl<T: Sized> Send for MemPool<T> {}
+unsafe impl<T: Sized> Send for PoolArc<T> {}
+unsafe impl<T: Sync + Sized> Sync for PoolArc<T> {}
+
+impl<T: std::fmt::Debug + Sized> std::fmt::Debug for PoolArc<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("PoolArc")
+         .field("inner", &self)
+         .finish()
     }
 }
 
-impl<T> Drop for Guard<T> {
+impl<T> PoolArc<T> {
+    fn new(page: Arc<Page<T>>, index_in_page: IndexInPage) -> PoolArc<T> {
+        page.free.fetch_sub(1, Ordering::AcqRel);
+
+        let node = &page.nodes[index_in_page.0];
+
+        if node.counter.load(Ordering::Relaxed) != 0 {
+            panic!("PoolArc: Counter not zero");
+        }
+
+        node.counter.fetch_add(1, Ordering::Relaxed);
+        let node = NonNull::from(node);
+
+        PoolArc { node, page }
+    }
+}
+
+impl<T: Sized> std::ops::Deref for PoolArc<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { &*self.node.as_ref().value.get() }
+    }
+}
+
+impl<T: Sized> std::ops::DerefMut for PoolArc<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.node.as_ref().value.get() }
+    }
+}
+
+impl<T> Drop for PoolArc<T> {
     fn drop(&mut self) {
         let (page, node) = unsafe {
             (self.page.as_ref(), self.node.as_ref())
@@ -155,24 +230,43 @@ impl<T> Drop for Guard<T> {
         // We were the last reference
         if count == 1 {
 
-            // We load the previous 'next_free' ptr/index of our page
-            let mut next = page.next_free.load(Ordering::Relaxed);
+            // We load the previous 'next_free' index of our page
+            let mut old_page_next = page.next_free.load(Ordering::Relaxed);
+
+            // We store a wrong index in our next_free
+            // See below for explanation
+            node.next_free.store(WRONG_NODE_INDEX, Ordering::Relaxed);
 
             // We want our page's 'next_free' to point to us
             // Since other threads can modify 'next_free' at the same time,
             // we loop on the exchange to ensure that:
             // 1 - our page's 'next_free' point to us
             // 2 - we get the previous value of the page 'next_free' to use
-            //     it for our own 'next_free' (see bellow)
+            //     it for our own 'next_free' (see below)
             while let Err(x) = page.next_free.compare_exchange_weak(
-                next, node.index_page, Ordering::SeqCst, Ordering::Relaxed
+                old_page_next, node.index_page, Ordering::SeqCst, Ordering::Relaxed
             ) {
-                next = x;
+                println!("RETRY2", );
+                old_page_next = x;
             }
 
+            // At this point, another thread can already read the page's
+            // 'next_free', which now point to us.
+            // However our 'next_free' could point to another node that
+            // might not be free.
+            // We previously stored a wrong index in our 'next_free' to
+            // avoid that another thread take that index as a free one.
+            // So Page::next_free() will fail and return None, even though
+            // there might be free nodes in our page.
+            // But that's fine:
+            // MemPool::find_place() will skip our page and continue searching
+            // in other pages.
+            // In the worst case, a new page will be allocated.
+            // That's fine too, I would say
+
             // We put the previous 'next_free' of our page in our own
-            // 'next_free'
-            node.next_free.store(next, Ordering::Release);
+            // 'next_free', now the linked list is valid
+            node.next_free.store(old_page_next, Ordering::Release);
 
             // Increment the page's 'free' counter
             page.free.fetch_add(1, Ordering::Relaxed);

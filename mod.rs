@@ -30,18 +30,18 @@ impl From<IndexInPage> for usize {
 }
 
 struct Page<T: Sized> {
-    nodes: Vec<Node<T>>,
     free: AtomicUsize,
     next_free: AtomicUsize,
+    nodes: [Node<T>; NODE_PER_PAGE],
 }
 
 impl<T: Sized> Page<T> {
     fn new() -> Page<T> {
-        let mut nodes = Vec::<Node<T>>::with_capacity(NODE_PER_PAGE);
 
-        unsafe { nodes.set_len(NODE_PER_PAGE) };
-
-        // TODO: Should use MaybeUninit here
+        // MaybeUninit doesn't allow field initialization :(
+        // https://doc.rust-lang.org/std/mem/union.MaybeUninit.html#initializing-a-struct-field-by-field
+        #[allow(clippy::uninit_assumed_init)]
+        let mut nodes: [Node<T>; NODE_PER_PAGE] = unsafe { MaybeUninit::uninit().assume_init() };
 
         for (index, node) in nodes.iter_mut().enumerate() {
             node.index_page = index;
@@ -49,22 +49,18 @@ impl<T: Sized> Page<T> {
             node.next_free = AtomicUsize::new(index + 1);
         }
 
-        let len = nodes.len();
-
         Page {
             nodes,
-            free: AtomicUsize::new(len),
+            free: AtomicUsize::new(NODE_PER_PAGE),
             next_free: AtomicUsize::new(0),
         }
     }
 
     fn next(&self, index: usize) -> usize {
-        match self.nodes.get(index) {
-            Some(node) => {
-                node.next_free.load(Ordering::Relaxed)
-            }
-            _ => self.nodes.len() + 1
-        }
+        self.nodes
+            .get(index)
+            .map(|node| node.next_free.load(Ordering::Relaxed))
+            .unwrap_or(WRONG_NODE_INDEX)
     }
 
     fn next_free(&self) -> Option<IndexInPage> {
@@ -89,6 +85,27 @@ impl<T: Sized> Page<T> {
 }
 
 use std::sync::Arc;
+
+// use once_cell;
+
+// use std::cell::RefCell;
+
+// thread_local! {
+//     pub static FOO: RefCell<Page<T>> = RefCell::new(1);
+
+//     #[allow(unused)]
+//     static BAR: RefCell<f32> = RefCell::new(1.0);
+// }
+
+// fn global_data<T>() -> &'static Mutex<HashMap<i32, String>> {
+//     static INSTANCE: OnceCell<Mutex<HashMap<i32, String>>> = OnceCell::new();
+//     INSTANCE.get_or_init(|| {
+//         let mut m = HashMap::new();
+//         m.insert(13, "Spica".to_string());
+//         m.insert(74, "Hoyten".to_string());
+//         Mutex::new(m)
+//     })
+// }
 
 pub struct MemPool<T: Sized> {
     pages: Vec<Arc<Page<T>>>,
@@ -129,9 +146,9 @@ impl<T: Sized> MemPool<T> {
     pub fn alloc(&mut self, value: T) -> PoolArc<T> {
         let (page, node) = self.find_place();
 
-        let v = page.nodes[node.0].value.get();
+        let ptr = page.nodes[node.0].value.get();
         unsafe {
-            std::ptr::write(v, value);
+            std::ptr::write(ptr, value);
         }
 
         PoolArc::new(page, node)
@@ -159,6 +176,12 @@ impl<T: Sized> MemPool<T> {
         fun(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
 
         PoolArc::new(page, node)
+    }
+}
+
+impl<T: Sized> Default for MemPool<T> {
+    fn default() -> MemPool<T> {
+        MemPool::new()
     }
 }
 

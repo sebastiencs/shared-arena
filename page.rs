@@ -42,6 +42,8 @@ pub struct Page<T: Sized> {
     pub nodes: [Node<T>; NODE_PER_PAGE],
 }
 
+unsafe impl<T> Sync for Page<T> {}
+
 impl<T: Sized> Page<T> {
     pub fn new() -> Page<T> {
 

@@ -69,7 +69,7 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
-    pub async fn alloc(&mut self, value: T) -> ArenaArc<T> {
+    pub async fn alloc(&self, value: T) -> ArenaArc<T> {
         let (page, node) = self.find_place().await;
 
         let ptr = page.nodes[node.0].value.get();
@@ -80,7 +80,7 @@ impl<T: Sized> SharedArena<T> {
         ArenaArc::new(page, node)
     }
 
-    pub async unsafe fn alloc_with<Fun>(&mut self, fun: Fun) -> ArenaArc<T>
+    pub async unsafe fn alloc_with<Fun>(&self, fun: Fun) -> ArenaArc<T>
     where
         Fun: Fn(&mut T)
     {
@@ -92,7 +92,7 @@ impl<T: Sized> SharedArena<T> {
         ArenaArc::new(page, node)
     }
 
-    pub async fn alloc_maybeuninit<Fun>(&mut self, fun: Fun) -> ArenaArc<T>
+    pub async fn alloc_maybeuninit<Fun>(&self, fun: Fun) -> ArenaArc<T>
     where
         Fun: Fn(&mut MaybeUninit<T>)
     {

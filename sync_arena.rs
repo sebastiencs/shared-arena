@@ -3,11 +3,12 @@ use async_std::sync::RwLock;
 
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Page, PoolArc, IndexInPage};
 
 pub struct SharedArena<T: Sized> {
+    last_found: AtomicUsize,
     pages: RwLock<Vec<Arc<Page<T>>>>,
 }
 
@@ -15,12 +16,19 @@ impl<T: Sized> SharedArena<T> {
     async fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
         let pages_len = {
             let pages = self.pages.read().await;
-            for page in pages.iter() {
+            let pages_len = pages.len();
+            let last_found = self.last_found.load(Ordering::Acquire);
+
+            let (before, after) = pages.split_at(last_found);
+
+            for (index, page) in after.iter().chain(before).enumerate() {
                 if let Some(node) = page.acquire_free_node() {
+                    self.last_found.store((last_found + index) % pages_len, Ordering::Release);
                     return (page.clone(), node);
                 };
             }
-            pages.len()
+
+            pages_len
         };
 
         // We didn't find empty space in our pages
@@ -40,13 +48,18 @@ impl<T: Sized> SharedArena<T> {
         pages.push(new_page.clone());
         let node = new_page.acquire_free_node().unwrap();
 
+        self.last_found.store(pages.len() - 1, Ordering::Release);
+
         (new_page, node)
     }
 
     pub fn new() -> SharedArena<T> {
         let mut pages = Vec::with_capacity(32);
         pages.push(Arc::new(Page::new()));
-        SharedArena { pages: RwLock::new(pages) }
+        SharedArena {
+            pages: RwLock::new(pages),
+            last_found: AtomicUsize::new(0)
+        }
     }
 
     pub async fn check_empty(&self) {

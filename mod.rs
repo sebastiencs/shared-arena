@@ -95,6 +95,7 @@ impl<T: Sized> Page<T> {
 use std::sync::Arc;
 
 pub struct MemPool<T: Sized> {
+    last_found: usize,
     pages: Vec<Arc<Page<T>>>,
 }
 
@@ -106,8 +107,11 @@ impl<T: Sized> MemPool<T> {
     }
 
     fn find_place(&mut self) -> (Arc<Page<T>>, IndexInPage) {
-        for page in self.pages.iter() {
+        let (before, after) = self.pages.split_at(self.last_found);
+
+        for (index, page) in after.iter().chain(before).enumerate() {
             if let Some(node) = page.acquire_free_node() {
+                self.last_found = (self.last_found + index) % self.pages.len();
                 return (page.clone(), node);
             };
         }
@@ -115,13 +119,15 @@ impl<T: Sized> MemPool<T> {
         let new_page = self.alloc_new_page();
         let node = new_page.acquire_free_node().unwrap();
 
+        self.last_found = self.pages.len() - 1;
+
         (new_page, node)
     }
 
     pub fn new() -> MemPool<T> {
         let mut pages = Vec::with_capacity(32);
         pages.push(Arc::new(Page::new()));
-        MemPool { pages }
+        MemPool { pages, last_found: 0 }
     }
 
     pub fn check_empty(&self) {

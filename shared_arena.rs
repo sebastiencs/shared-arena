@@ -5,7 +5,8 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::{Page, PoolArc, IndexInPage};
+use super::page::{Page, IndexInPage};
+use super::arena_arc::ArenaArc;
 
 pub struct SharedArena<T: Sized> {
     last_found: AtomicUsize,
@@ -68,7 +69,7 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
-    pub async fn alloc(&mut self, value: T) -> PoolArc<T> {
+    pub async fn alloc(&mut self, value: T) -> ArenaArc<T> {
         let (page, node) = self.find_place().await;
 
         let ptr = page.nodes[node.0].value.get();
@@ -76,10 +77,10 @@ impl<T: Sized> SharedArena<T> {
             std::ptr::write(ptr, value);
         }
 
-        PoolArc::new(page, node)
+        ArenaArc::new(page, node)
     }
 
-    pub async unsafe fn alloc_with<Fun>(&mut self, fun: Fun) -> PoolArc<T>
+    pub async unsafe fn alloc_with<Fun>(&mut self, fun: Fun) -> ArenaArc<T>
     where
         Fun: Fn(&mut T)
     {
@@ -88,10 +89,10 @@ impl<T: Sized> SharedArena<T> {
         let v = page.nodes[node.0].value.get();
         fun(&mut *v);
 
-        PoolArc::new(page, node)
+        ArenaArc::new(page, node)
     }
 
-    pub async fn alloc_maybeuninit<Fun>(&mut self, fun: Fun) -> PoolArc<T>
+    pub async fn alloc_maybeuninit<Fun>(&mut self, fun: Fun) -> ArenaArc<T>
     where
         Fun: Fn(&mut MaybeUninit<T>)
     {
@@ -100,7 +101,7 @@ impl<T: Sized> SharedArena<T> {
         let v = page.nodes[node.0].value.get();
         fun(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
 
-        PoolArc::new(page, node)
+        ArenaArc::new(page, node)
     }
 }
 

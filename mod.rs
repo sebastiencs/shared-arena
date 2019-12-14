@@ -4,6 +4,8 @@ use std::ptr::NonNull;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 
+mod sync_arena;
+
 const NODE_PER_PAGE: usize = 32;
 const WRONG_NODE_INDEX: usize = NODE_PER_PAGE + 1;
 

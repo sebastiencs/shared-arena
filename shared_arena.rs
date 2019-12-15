@@ -18,13 +18,14 @@ impl<T: Sized> SharedArena<T> {
         let pages_len = {
             let pages = self.pages.read().await;
             let pages_len = pages.len();
+
             let last_found = self.last_found.load(Ordering::Acquire);
 
             let (before, after) = pages.split_at(last_found);
 
             for (index, page) in after.iter().chain(before).enumerate() {
                 if let Some(node) = page.acquire_free_node() {
-                    self.last_found.store((last_found + index) % pages_len, Ordering::Release);
+                    self.last_found.store((last_found + index + 1) % pages_len, Ordering::Release);
                     return (page.clone(), node);
                 };
             }
@@ -64,9 +65,9 @@ impl<T: Sized> SharedArena<T> {
     }
 
     pub async fn check_empty(&self) {
-        for (index, page) in self.pages.read().await.iter().enumerate() {
-            println!("PAGE {} FREE {}", index, page.nfree.load(Ordering::Relaxed));
-        }
+        // for (index, page) in self.pages.read().await.iter().enumerate() {
+        //     println!("PAGE {} FREE {}", index, page.nfree.load(Ordering::Relaxed));
+        // }
     }
 
     pub async fn alloc(&self, value: T) -> ArenaArc<T> {
@@ -116,11 +117,51 @@ impl<T: Sized> Default for SharedArena<T> {
 
 impl<T> std::fmt::Debug for SharedArena<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let len = async_std::task::block_on(async {
-           self.pages.read().await.len()
+        struct Page {
+            free: usize,
+            used: usize,
+            // acquiring: bool
+        }
+
+        impl std::fmt::Debug for Page {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "Page {{ free: {} used: {} }}", self.free, self.used)
+            }
+        }
+
+        let pages = async_std::task::block_on(async {
+            let pages = self.pages.read().await;
+
+            let mut vec = Vec::with_capacity(pages.len());
+            for page in pages.iter() {
+                let used = page.bitfield.load(Ordering::Relaxed).count_zeros() as usize;
+                // let free = page.nfree.load(Ordering::Relaxed);
+                // let acquiring = page.acquiring.load(Ordering::Relaxed);
+                vec.push(Page {
+                    // free,
+                    // acquiring,
+                    used,
+                    free: super::page::NODE_PER_PAGE - used,
+                });
+            }
+
+            vec
         });
+
+        let nodes_used: usize = pages.iter().map(|p| p.used).sum();
+        let nodes_free: usize = pages.iter().map(|p| p.free).sum();
+
         f.debug_struct("MemPool")
-         .field("npages", &len)
+         .field("nodes_free", &nodes_free)
+         .field("nodes_used", &nodes_used)
+         .field("npages", &pages.len())
+         .field("pages", &pages)
          .finish()
     }
 }
+
+    // pub async fn check_empty(&self) {
+    //     for (index, page) in self.pages.read().await.iter().enumerate() {
+    //         println!("PAGE {} FREE {}", index, page.nfree.load(Ordering::Relaxed));
+    //     }
+    // }

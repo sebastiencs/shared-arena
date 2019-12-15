@@ -44,12 +44,6 @@ impl<T: Sized> Arena<T> {
         Arena { pages, last_found: 0 }
     }
 
-    pub fn check_empty(&self) {
-        for (index, page) in self.pages.iter().enumerate() {
-            println!("PAGE {} FREE {}", index, page.nfree.load(Ordering::Relaxed));
-        }
-    }
-
     pub fn alloc(&mut self, value: T) -> ArenaArc<T> {
         let (page, node) = self.find_place();
 

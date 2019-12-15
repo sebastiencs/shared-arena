@@ -1,9 +1,11 @@
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::ptr::NonNull;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
+
+use crate::cache_line::CacheAligned;
 
 pub const NODE_PER_PAGE: usize = 32;
 pub const WRONG_NODE_INDEX: usize = NODE_PER_PAGE + 1;
@@ -14,8 +16,6 @@ pub struct Node<T: Sized> {
     pub index_in_page: usize,
     /// Number of references to this node
     pub counter: AtomicUsize,
-    /// Index to the next free node in our page
-    pub next_free: AtomicUsize,
     pub value: UnsafeCell<T>,
 }
 
@@ -34,12 +34,12 @@ impl From<IndexInPage> for usize {
 }
 
 pub struct Page<T: Sized> {
-    /// Number of free nodes in this page
-    pub nfree: AtomicUsize,
-    /// Index to a free node in this page
-    pub free_node: AtomicUsize,
+    // 1 => Free
+    // 0 => Occupied
+    pub bitfield: CacheAligned<AtomicU32>,
+
     /// Array of nodes
-    pub nodes: [Node<T>; NODE_PER_PAGE],
+    pub nodes: CacheAligned<[Node<T>; NODE_PER_PAGE]>,
 }
 
 unsafe impl<T> Sync for Page<T> {}
@@ -55,40 +55,40 @@ impl<T: Sized> Page<T> {
         for (index, node) in nodes.iter_mut().enumerate() {
             node.index_in_page = index;
             node.counter = AtomicUsize::new(0);
-            node.next_free = AtomicUsize::new(index + 1);
         }
 
         Page {
-            nodes,
-            nfree: AtomicUsize::new(NODE_PER_PAGE),
-            free_node: AtomicUsize::new(0),
+            nodes: CacheAligned::new(nodes),
+            bitfield: CacheAligned::new(AtomicU32::new(!0))
         }
-    }
-
-    fn next(&self, index: usize) -> usize {
-        self.nodes
-            .get(index)
-            .map(|node| node.next_free.load(Ordering::Relaxed))
-            .unwrap_or(WRONG_NODE_INDEX)
     }
 
     pub fn acquire_free_node(&self) -> Option<IndexInPage> {
-        let freed = self.nfree.load(Ordering::Acquire);
+        let mut bitfield = self.bitfield.load(Ordering::Relaxed);
 
-        if freed == 0 {
+        let mut index_free = bitfield.trailing_zeros();
+
+        if index_free == 32 {
             return None;
         }
 
-        let mut next = self.free_node.load(Ordering::Relaxed);
-        let mut next_next = self.next(next);
+        // Bitfield where we clear the bit of the free node to mark
+        // it as non-free
+        let mut new_bitfield = bitfield & !(1 << index_free);
 
-        while let Err(x) = self.free_node.compare_exchange_weak(
-            next, next_next, Ordering::SeqCst, Ordering::Relaxed
+        while let Err(x) = self.bitfield.compare_exchange_weak(
+            bitfield, new_bitfield, Ordering::SeqCst, Ordering::Relaxed
         ) {
-            next = x;
-            next_next = self.next(next);
+            bitfield = x;
+            index_free = bitfield.trailing_zeros();
+
+            if index_free == 32 {
+                return None;
+            }
+
+            new_bitfield = bitfield & !(1 << index_free);
         }
 
-        self.nodes.get(next).map(|_| next.into())
+        Some((index_free as usize).into())
     }
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::ptr::NonNull;
 
-use super::page::{IndexInPage, Page, Node, WRONG_NODE_INDEX};
+use super::page::{IndexInPage, Page, Node};
 
 pub struct ArenaArc<T: Sized> {
     page: Arc<Page<T>>,
@@ -60,17 +60,20 @@ impl<T> Drop for ArenaArc<T> {
         // We were the last reference
         if count == 1 {
             let index_in_page = node.index_in_page;
+            let bit = index_in_page % 8;
 
-            let mut bitfield = page.bitfield.load(Ordering::Relaxed);
+            let bitfield_ref = &page.bitfield[index_in_page / 8];
+
+            let mut bitfield = bitfield_ref.load(Ordering::Relaxed);
 
             // We set our bit to mark the node as free
-            let mut new_bitfield = bitfield | (1 << index_in_page);
+            let mut new_bitfield = bitfield | (1 << bit);
 
-            while let Err(x) = page.bitfield.compare_exchange_weak(
+            while let Err(x) = bitfield_ref.compare_exchange_weak(
                 bitfield, new_bitfield, Ordering::SeqCst, Ordering::Relaxed
             ) {
                 bitfield = x;
-                new_bitfield = bitfield | (1 << index_in_page);
+                new_bitfield = bitfield | (1 << bit);
             }
         };
     }

@@ -120,7 +120,6 @@ impl<T> std::fmt::Debug for SharedArena<T> {
         struct Page {
             free: usize,
             used: usize,
-            // acquiring: bool
         }
 
         impl std::fmt::Debug for Page {
@@ -134,12 +133,11 @@ impl<T> std::fmt::Debug for SharedArena<T> {
 
             let mut vec = Vec::with_capacity(pages.len());
             for page in pages.iter() {
-                let used = page.bitfield.load(Ordering::Relaxed).count_zeros() as usize;
-                // let free = page.nfree.load(Ordering::Relaxed);
-                // let acquiring = page.acquiring.load(Ordering::Relaxed);
+                let used = page.bitfield
+                               .iter()
+                               .map(|b| b.load(Ordering::Relaxed).count_zeros() as usize)
+                               .sum::<usize>();
                 vec.push(Page {
-                    // free,
-                    // acquiring,
                     used,
                     free: super::page::NODE_PER_PAGE - used,
                 });
@@ -159,9 +157,3 @@ impl<T> std::fmt::Debug for SharedArena<T> {
          .finish()
     }
 }
-
-    // pub async fn check_empty(&self) {
-    //     for (index, page) in self.pages.read().await.iter().enumerate() {
-    //         println!("PAGE {} FREE {}", index, page.nfree.load(Ordering::Relaxed));
-    //     }
-    // }

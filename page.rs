@@ -1,9 +1,7 @@
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-use std::ptr::NonNull;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
-use std::sync::Arc;
 
 use crate::cache_line::CacheAligned;
 
@@ -19,6 +17,7 @@ pub struct Node<T: Sized> {
     pub value: UnsafeCell<T>,
 }
 
+#[derive(Debug)]
 pub struct IndexInPage(pub usize);
 
 impl From<usize> for IndexInPage {
@@ -34,9 +33,11 @@ impl From<IndexInPage> for usize {
 }
 
 pub struct Page<T: Sized> {
-    // 1 => Free
-    // 0 => Occupied
-    pub bitfield: CacheAligned<AtomicU32>,
+    /// Bitfield representing the free and non-free nodes:
+    /// - 1 => Free
+    /// - 0 => Non free
+    /// We use four u8 instead of one u32 to reduce contention
+    pub bitfield: [CacheAligned<AtomicU8>; 4],
 
     /// Array of nodes
     pub nodes: CacheAligned<[Node<T>; NODE_PER_PAGE]>,
@@ -59,36 +60,45 @@ impl<T: Sized> Page<T> {
 
         Page {
             nodes: CacheAligned::new(nodes),
-            bitfield: CacheAligned::new(AtomicU32::new(!0))
+            bitfield: [
+                CacheAligned::new(AtomicU8::new(!0)),
+                CacheAligned::new(AtomicU8::new(!0)),
+                CacheAligned::new(AtomicU8::new(!0)),
+                CacheAligned::new(AtomicU8::new(!0)),
+            ]
         }
     }
 
     pub fn acquire_free_node(&self) -> Option<IndexInPage> {
-        let mut bitfield = self.bitfield.load(Ordering::Relaxed);
+        'outer: for (index, byte) in self.bitfield.iter().enumerate() {
+            let mut bitfield = byte.load(Ordering::Relaxed);
 
-        let mut index_free = bitfield.trailing_zeros();
+            let mut index_free = bitfield.trailing_zeros();
 
-        if index_free == 32 {
-            return None;
-        }
-
-        // Bitfield where we clear the bit of the free node to mark
-        // it as non-free
-        let mut new_bitfield = bitfield & !(1 << index_free);
-
-        while let Err(x) = self.bitfield.compare_exchange_weak(
-            bitfield, new_bitfield, Ordering::SeqCst, Ordering::Relaxed
-        ) {
-            bitfield = x;
-            index_free = bitfield.trailing_zeros();
-
-            if index_free == 32 {
-                return None;
+            if index_free == 8 {
+                continue;
             }
 
-            new_bitfield = bitfield & !(1 << index_free);
+            // Bitfield where we clear the bit of the free node to mark
+            // it as non-free
+            let mut new_bitfield = bitfield & !(1 << index_free);
+
+            while let Err(x) = byte.compare_exchange_weak(
+                bitfield, new_bitfield, Ordering::SeqCst, Ordering::Relaxed
+            ) {
+                bitfield = x;
+                index_free = bitfield.trailing_zeros();
+
+                if index_free == 8 {
+                    continue 'outer;
+                }
+
+                new_bitfield = bitfield & !(1 << index_free);
+            }
+
+            return Some((index * 8 + index_free as usize).into());
         }
 
-        Some((index_free as usize).into())
+        None
     }
 }

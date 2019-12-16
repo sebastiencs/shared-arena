@@ -102,3 +102,9 @@ impl<T: Sized> Page<T> {
         None
     }
 }
+
+impl<T> Default for Page<T> {
+    fn default() -> Page<T> {
+        Page::new()
+    }
+}

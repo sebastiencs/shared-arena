@@ -3,44 +3,93 @@ use async_std::sync::RwLock;
 
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{compiler_fence, fence, AtomicBool, AtomicUsize, Ordering};
 
 use super::page::{Page, IndexInPage};
 use super::arena_arc::ArenaArc;
 
 use std::cell::{RefCell, Ref, RefMut};
+use std::cell::UnsafeCell;
 
 pub struct SharedArena<T: Sized> {
     last_found: AtomicUsize,
-    first_pages: AtomicBool,
-    pages1: RefCell<Vec<Arc<Page<T>>>>,
-    pages2: RefCell<Vec<Arc<Page<T>>>>,
-    pages: RwLock<Vec<Arc<Page<T>>>>,
-    pushing: AtomicBool,
+    use_copy: AtomicBool,
+    pages: UnsafeCell<Vec<Arc<Page<T>>>>,
+    pages_copy: UnsafeCell<Vec<Arc<Page<T>>>>,
+    // pages: RwLock<Vec<Arc<Page<T>>>>,
+    writer: AtomicBool,
+}
+
+struct WriterGuard<'a> {
+    writer: &'a AtomicBool
+}
+
+impl WriterGuard<'_> {
+    fn new(writer: &AtomicBool) -> Option<WriterGuard> {
+        if writer.compare_exchange_weak(
+            false, true, Ordering::SeqCst, Ordering::Relaxed
+        ).is_err() {
+            return None;
+        };
+
+        Some(WriterGuard { writer })
+    }
+}
+
+impl Drop for WriterGuard<'_> {
+    fn drop(&mut self) {
+        self.writer.store(false, Ordering::SeqCst);
+    }
 }
 
 impl<T: Sized> SharedArena<T> {
-    fn borrow_pages(&self, first_pages: bool) -> Ref<Vec<Arc<Page<T>>>> {
-        match first_pages {
-            true => self.pages1.borrow(),
-            _ => self.pages2.borrow()
-        }
+    fn borrow_pages(&self, use_copy: bool) -> &[Arc<Page<T>>] {
+        let pages = if use_copy {
+            &self.pages
+        } else {
+            &self.pages_copy
+        };
+        unsafe { &*pages.get() }
     }
 
-    fn borrow_pages_mut(&self, first_pages: bool) -> RefMut<Vec<Arc<Page<T>>>> {
-        match first_pages {
-            true => self.pages1.borrow_mut(),
-            _ => self.pages2.borrow_mut()
+    #[allow(clippy::mut_from_ref)]
+    fn borrow_pages_mut(&self, use_copy: bool) -> &mut Vec<Arc<Page<T>>> {
+        let pages = if use_copy {
+            &self.pages
+        } else {
+            &self.pages_copy
+        };
+        unsafe { &mut *pages.get() }
+    }
+
+    fn with_single_writer<F>(&self, use_copy: bool, fun: F)
+    where
+        F: Fn(&mut Vec<Arc<Page<T>>>)
+    {
+        let _guard = match WriterGuard::new(&self.writer) {
+            Some(guard) => guard,
+            _ => return
+        };
+
+        if self.use_copy.load(Ordering::Acquire) != use_copy {
+            return;
         }
+
+        let other_pages = self.borrow_pages_mut(!use_copy);
+
+        fun(other_pages);
+
+        self.use_copy.store(!use_copy, Ordering::Release);
     }
 
     async fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
-        let first_pages = self.first_pages.load(Ordering::Acquire);
 
         loop {
-            let pages = self.borrow_pages(first_pages);
+            let use_copy = self.use_copy.load(Ordering::Acquire);
 
-            let pages_len = {
+            let (pages_ptr, pages_len) = {
+                let pages = self.borrow_pages(use_copy);
+
                 // let pages = self.pages.read().await;
                 let pages_len = pages.len();
 
@@ -55,75 +104,51 @@ impl<T: Sized> SharedArena<T> {
                     };
                 }
 
-                pages_len
+                (pages.as_ptr(), pages_len)
             };
 
-            if self.pushing.compare_exchange_weak(
-                false, true, Ordering::SeqCst, Ordering::Relaxed
-            ).is_err() {
-                continue;
-            };
-
-            {
-                let mut other_pages = self.borrow_pages_mut(!first_pages);
-
-                let ptr = pages.as_ptr();
-                let other_ptr_mut = other_pages.as_mut_ptr();
-
-                if other_pages.capacity() <= pages_len {
-                    // Avoid dropping old values
-                    unsafe { other_pages.set_len(0) };
-                    *other_pages = Vec::with_capacity(pages_len * 2);
-                }
-
+            self.with_single_writer(use_copy, |other_pages| {
                 unsafe {
-                    std::ptr::copy_nonoverlapping(ptr, other_ptr_mut, pages_len);
+                    if other_pages.capacity() <= pages_len {
+                        // Avoid dropping old values
+                        other_pages.set_len(0);
+                        *other_pages = Vec::with_capacity(pages_len * 2);
+                    }
+
+                    let other_ptr_mut = other_pages.as_mut_ptr();
+
+                    std::ptr::copy_nonoverlapping(pages_ptr, other_ptr_mut, pages_len);
                     other_pages.set_len(pages_len);
                 };
-                other_pages.push(Arc::new(Page::new()));
 
-            }
-
-            self.first_pages.store(!first_pages, Ordering::Release);
-
-            self.pushing.store(false, Ordering::Release);
+                other_pages.push(Default::default());
+            });
         }
+    }
 
-        // We didn't find empty space in our pages
-        // We lock the arena and allocate a new page
+    pub fn clear(&self) {
+        let use_copy = self.use_copy.load(Ordering::Acquire);
 
-        let mut pages = self.pages.write().await;
+        self.with_single_writer(use_copy, |other_pages| {
+            // let other_ptr_mut = other_pages.as_mut_ptr();
+            // std::ptr::copy_nonoverlapping(pages_ptr, other_ptr_mut, pages_len);
 
-        if pages.len() > 10 {
-        //if pages.len() > pages_len {
-            // Another thread has already pushed a new page
-            let last = pages.last().unwrap();
-            if let Some(node) = last.acquire_free_node() {
-                return (last.clone(), node);
-            };
-        }
-
-        let new_page = Arc::new(Page::new());
-        pages.push(new_page.clone());
-        let node = new_page.acquire_free_node().unwrap();
-
-        self.last_found.store(pages.len() - 1, Ordering::Release);
-
-        (new_page, node)
+            other_pages.clear();
+        });
     }
 
     pub fn new() -> SharedArena<T> {
-        let mut pages = Vec::with_capacity(32);
-        pages.push(Arc::new(Page::new()));
-        let mut pages1 = Vec::with_capacity(1);
-        pages1.push(Arc::new(Page::new()));
+        // let mut pages = Vec::with_capacity(1);
+        // pages.push(Default::default());
+        let mut pages = Vec::with_capacity(1);
+        pages.push(Default::default());
         SharedArena {
-            pages: RwLock::new(pages),
+            // pages: RwLock::new(pages),
             last_found: AtomicUsize::new(0),
-            first_pages: AtomicBool::new(true),
-            pages1: RefCell::new(pages1),
-            pages2: RefCell::new(Vec::new()),
-            pushing: AtomicBool::new(false),
+            use_copy: AtomicBool::new(true),
+            pages: UnsafeCell::new(pages),
+            pages_copy: UnsafeCell::new(Vec::new()),
+            writer: AtomicBool::new(false),
         }
     }
 
@@ -192,7 +217,11 @@ impl<T> std::fmt::Debug for SharedArena<T> {
         }
 
         let pages = async_std::task::block_on(async {
-            let pages = self.pages.read().await;
+            let use_copy = self.use_copy.load(Ordering::Acquire);
+
+            let pages = self.borrow_pages(use_copy);
+
+            // let pages = self.pages.read().await;
 
             let mut vec = Vec::with_capacity(pages.len());
             for page in pages.iter() {

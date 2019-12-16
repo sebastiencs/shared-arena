@@ -11,12 +11,11 @@ use super::arena_arc::ArenaArc;
 use std::cell::{RefCell, Ref, RefMut};
 use std::cell::UnsafeCell;
 
+use crossbeam_epoch as epoch;
+
 pub struct SharedArena<T: Sized> {
     last_found: AtomicUsize,
-    use_copy: AtomicBool,
-    pages: UnsafeCell<Vec<Arc<Page<T>>>>,
-    pages_copy: UnsafeCell<Vec<Arc<Page<T>>>>,
-    // pages: RwLock<Vec<Arc<Page<T>>>>,
+    pages: epoch::Atomic<Vec<Arc<Page<T>>>>,
     writer: AtomicBool,
 }
 
@@ -43,56 +42,42 @@ impl Drop for WriterGuard<'_> {
 }
 
 impl<T: Sized> SharedArena<T> {
-    fn borrow_pages(&self, use_copy: bool) -> &[Arc<Page<T>>] {
-        let pages = if use_copy {
-            &self.pages
-        } else {
-            &self.pages_copy
-        };
-        unsafe { &*pages.get() }
-    }
 
-    #[allow(clippy::mut_from_ref)]
-    fn borrow_pages_mut(&self, use_copy: bool) -> &mut Vec<Arc<Page<T>>> {
-        let pages = if use_copy {
-            &self.pages
-        } else {
-            &self.pages_copy
-        };
-        unsafe { &mut *pages.get() }
-    }
-
-    fn with_single_writer<F>(&self, use_copy: bool, fun: F)
-    where
-        F: Fn(&mut Vec<Arc<Page<T>>>)
-    {
-        let _guard = match WriterGuard::new(&self.writer) {
+    fn with_single_writer(
+        &self,
+        pages: &Vec<Arc<Page<T>>>,
+        guard: &epoch::Guard,
+        fun: impl Fn(),
+    ) {
+        let _writer_guard = match WriterGuard::new(&self.writer) {
             Some(guard) => guard,
             _ => return
         };
 
-        if self.use_copy.load(Ordering::Acquire) != use_copy {
-            return;
+        {
+            let current_pages = self.pages.load(Ordering::Acquire, guard);
+            let current_pages = unsafe { current_pages.as_ref().unwrap() };
+            if pages.as_ptr() != current_pages.as_ptr() {
+                // pages has already been updated
+                return;
+            }
         }
 
-        let other_pages = self.borrow_pages_mut(!use_copy);
 
-        fun(other_pages);
-
-        self.use_copy.store(!use_copy, Ordering::Release);
+        fun();
     }
 
     async fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
 
+        let guard = epoch::pin();
+
         loop {
-            let use_copy = self.use_copy.load(Ordering::Acquire);
+            let shared_pages = self.pages.load(Ordering::Acquire, &guard);
 
-            let (pages_ptr, pages_len) = {
-                let pages = self.borrow_pages(use_copy);
+            let pages = unsafe { shared_pages.as_ref().unwrap() };
 
-                // let pages = self.pages.read().await;
+            let pages_len = {
                 let pages_len = pages.len();
-
                 let last_found = self.last_found.load(Ordering::Acquire);
 
                 let (before, after) = pages.split_at(last_found);
@@ -104,51 +89,74 @@ impl<T: Sized> SharedArena<T> {
                     };
                 }
 
-                (pages.as_ptr(), pages_len)
+                pages_len
             };
 
-            self.with_single_writer(use_copy, |other_pages| {
+            self.with_single_writer(pages, &guard, || {
+
+                let new_len = 1.max(pages_len * 2);
+
+                println!("WRITER {}", new_len);
+
+                let mut new_pages = Vec::with_capacity(new_len);
+
+                let pages_ptr = pages.as_ptr();
+                let new_pages_ptr = new_pages.as_mut_ptr();
+
                 unsafe {
-                    if other_pages.capacity() <= pages_len {
-                        // Avoid dropping old values
-                        other_pages.set_len(0);
-                        *other_pages = Vec::with_capacity(pages_len * 2);
-                    }
+                    // memcpy the old pages
+                    std::ptr::copy_nonoverlapping(pages_ptr, new_pages_ptr, pages_len);
+                    new_pages.set_len(pages_len);
+                }
 
-                    let other_ptr_mut = other_pages.as_mut_ptr();
+                new_pages.resize_with(new_len, Default::default);
 
-                    std::ptr::copy_nonoverlapping(pages_ptr, other_ptr_mut, pages_len);
-                    other_pages.set_len(pages_len);
-                };
+                let old = self.pages.swap(epoch::Owned::new(new_pages), Ordering::AcqRel, &guard);
 
-                other_pages.push(Default::default());
+//                self.pages.store(epoch::Owned::new(new_pages), Ordering::Release);
+
+                unsafe {
+                    guard.defer_unchecked(move || {
+                        let mut owned = old.into_owned();
+
+                        // We drop the Vec but not the pages because we just
+                        // memcpy them
+                        owned.set_len(0);
+                        println!("DEFER CALLED", );
+                    });
+                }
             });
         }
     }
 
     pub fn clear(&self) {
-        let use_copy = self.use_copy.load(Ordering::Acquire);
+        let guard = epoch::pin();
 
-        self.with_single_writer(use_copy, |other_pages| {
-            // let other_ptr_mut = other_pages.as_mut_ptr();
-            // std::ptr::copy_nonoverlapping(pages_ptr, other_ptr_mut, pages_len);
+        let mut new_pages = Vec::with_capacity(1);
+        new_pages.resize_with(1, Default::default);
 
-            other_pages.clear();
-        });
+        self.last_found.store(0, Ordering::Release);
+
+        let old = self.pages.swap(epoch::Owned::new(new_pages), Ordering::AcqRel, &guard);
+
+        unsafe {
+            guard.defer_unchecked(move || {
+                println!("DEFER CALLED FROM CLEAR", );
+                old.into_owned()
+                //owned.set_len(0);
+            });
+        }
+
+        guard.flush();
     }
 
     pub fn new() -> SharedArena<T> {
-        // let mut pages = Vec::with_capacity(1);
-        // pages.push(Default::default());
         let mut pages = Vec::with_capacity(1);
         pages.push(Default::default());
         SharedArena {
-            // pages: RwLock::new(pages),
             last_found: AtomicUsize::new(0),
-            use_copy: AtomicBool::new(true),
-            pages: UnsafeCell::new(pages),
-            pages_copy: UnsafeCell::new(Vec::new()),
             writer: AtomicBool::new(false),
+            pages: epoch::Atomic::new(pages),
         }
     }
 
@@ -217,13 +225,13 @@ impl<T> std::fmt::Debug for SharedArena<T> {
         }
 
         let pages = async_std::task::block_on(async {
-            let use_copy = self.use_copy.load(Ordering::Acquire);
+            let guard = epoch::pin();
 
-            let pages = self.borrow_pages(use_copy);
-
-            // let pages = self.pages.read().await;
+            let pages = self.pages.load(Ordering::Acquire, &guard);
+            let pages = unsafe { pages.as_ref().unwrap() };
 
             let mut vec = Vec::with_capacity(pages.len());
+
             for page in pages.iter() {
                 let used = page.bitfield
                                .iter()

@@ -3,7 +3,7 @@ use async_std::sync::RwLock;
 
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{compiler_fence, fence, AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
 
 use super::page::{Page, IndexInPage};
 use super::arena_arc::ArenaArc;
@@ -11,7 +11,7 @@ use super::arena_arc::ArenaArc;
 use std::cell::{RefCell, Ref, RefMut};
 use std::cell::UnsafeCell;
 
-use crossbeam_epoch as epoch;
+use crossbeam_epoch::{self as epoch, Owned};
 
 pub struct SharedArena<T: Sized> {
     last_found: AtomicUsize,
@@ -26,7 +26,7 @@ struct WriterGuard<'a> {
 impl WriterGuard<'_> {
     fn new(writer: &AtomicBool) -> Option<WriterGuard> {
         if writer.compare_exchange_weak(
-            false, true, Ordering::SeqCst, Ordering::Relaxed
+            false, true, SeqCst, Relaxed
         ).is_err() {
             return None;
         };
@@ -37,7 +37,7 @@ impl WriterGuard<'_> {
 
 impl Drop for WriterGuard<'_> {
     fn drop(&mut self) {
-        self.writer.store(false, Ordering::SeqCst);
+        self.writer.store(false, SeqCst);
     }
 }
 
@@ -55,14 +55,13 @@ impl<T: Sized> SharedArena<T> {
         };
 
         {
-            let current_pages = self.pages.load(Ordering::Acquire, guard);
+            let current_pages = self.pages.load(Acquire, guard);
             let current_pages = unsafe { current_pages.as_ref().unwrap() };
             if pages.as_ptr() != current_pages.as_ptr() {
                 // pages has already been updated
                 return;
             }
         }
-
 
         fun();
     }
@@ -72,28 +71,30 @@ impl<T: Sized> SharedArena<T> {
         let guard = epoch::pin();
 
         loop {
-            let shared_pages = self.pages.load(Ordering::Acquire, &guard);
+            let shared_pages = self.pages.load(Acquire, &guard);
 
             let pages = unsafe { shared_pages.as_ref().unwrap() };
+            let pages_len = pages.len();
 
-            let pages_len = {
-                let pages_len = pages.len();
-                let last_found = self.last_found.load(Ordering::Acquire);
+            let last_found = self.last_found.load(Acquire);
 
-                let (before, after) = pages.split_at(last_found);
+            let (before, after) = pages.split_at(last_found);
 
-                for (index, page) in after.iter().chain(before).enumerate() {
-                    if let Some(node) = page.acquire_free_node() {
-                        self.last_found.store((last_found + index + 1) % pages_len, Ordering::Release);
-                        return (page.clone(), node);
-                    };
-                }
+            for (index, page) in after.iter().chain(before).enumerate() {
+                if let Some(node) = page.acquire_free_node() {
+                    self.last_found.store((last_found + index + 1) % pages_len, Release);
+                    return (page.clone(), node);
+                };
+            }
 
-                pages_len
-            };
+            // At this point, we didn't find empty space in our pages
+            // We have to allocate new pages and we allow only 1 thread
+            // to do it.
+            // We should reach this point very occasionally.
 
             self.with_single_writer(pages, &guard, || {
 
+                // Double the number of pages
                 let new_len = 1.max(pages_len * 2);
 
                 println!("WRITER {}", new_len);
@@ -109,16 +110,19 @@ impl<T: Sized> SharedArena<T> {
                     new_pages.set_len(pages_len);
                 }
 
+                // Fill the rest with new pages
                 new_pages.resize_with(new_len, Default::default);
 
-                let old = self.pages.swap(epoch::Owned::new(new_pages), Ordering::AcqRel, &guard);
-
-//                self.pages.store(epoch::Owned::new(new_pages), Ordering::Release);
+                if self.pages.compare_and_set(
+                    shared_pages, Owned::new(new_pages), AcqRel, &guard
+                ).is_err() {
+                    // Pages have been updated by Self::clear()
+                    return;
+                }
 
                 unsafe {
                     guard.defer_unchecked(move || {
-                        let mut owned = old.into_owned();
-
+                        let mut owned = shared_pages.into_owned();
                         // We drop the Vec but not the pages because we just
                         // memcpy them
                         owned.set_len(0);
@@ -135,9 +139,9 @@ impl<T: Sized> SharedArena<T> {
         let mut new_pages = Vec::with_capacity(1);
         new_pages.resize_with(1, Default::default);
 
-        self.last_found.store(0, Ordering::Release);
+        self.last_found.store(0, Release);
 
-        let old = self.pages.swap(epoch::Owned::new(new_pages), Ordering::AcqRel, &guard);
+        let old = self.pages.swap(Owned::new(new_pages), AcqRel, &guard);
 
         unsafe {
             guard.defer_unchecked(move || {
@@ -153,6 +157,7 @@ impl<T: Sized> SharedArena<T> {
     pub fn new() -> SharedArena<T> {
         let mut pages = Vec::with_capacity(1);
         pages.push(Default::default());
+
         SharedArena {
             last_found: AtomicUsize::new(0),
             writer: AtomicBool::new(false),
@@ -162,7 +167,7 @@ impl<T: Sized> SharedArena<T> {
 
     pub async fn check_empty(&self) {
         // for (index, page) in self.pages.read().await.iter().enumerate() {
-        //     println!("PAGE {} FREE {}", index, page.nfree.load(Ordering::Relaxed));
+        //     println!("PAGE {} FREE {}", index, page.nfree.load(Relaxed));
         // }
     }
 
@@ -227,7 +232,7 @@ impl<T> std::fmt::Debug for SharedArena<T> {
         let pages = async_std::task::block_on(async {
             let guard = epoch::pin();
 
-            let pages = self.pages.load(Ordering::Acquire, &guard);
+            let pages = self.pages.load(Acquire, &guard);
             let pages = unsafe { pages.as_ref().unwrap() };
 
             let mut vec = Vec::with_capacity(pages.len());
@@ -235,7 +240,7 @@ impl<T> std::fmt::Debug for SharedArena<T> {
             for page in pages.iter() {
                 let used = page.bitfield
                                .iter()
-                               .map(|b| b.load(Ordering::Relaxed).count_zeros() as usize)
+                               .map(|b| b.load(Relaxed).count_zeros() as usize)
                                .sum::<usize>();
                 vec.push(Page {
                     used,

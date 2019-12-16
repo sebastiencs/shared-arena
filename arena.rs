@@ -1,6 +1,5 @@
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::mem::MaybeUninit;
 
 use super::page::{Page, IndexInPage};

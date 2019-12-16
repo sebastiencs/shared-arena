@@ -3,42 +3,99 @@ use async_std::sync::RwLock;
 
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::page::{Page, IndexInPage};
 use super::arena_arc::ArenaArc;
 
+use std::cell::{RefCell, Ref, RefMut};
+
 pub struct SharedArena<T: Sized> {
     last_found: AtomicUsize,
+    first_pages: AtomicBool,
+    pages1: RefCell<Vec<Arc<Page<T>>>>,
+    pages2: RefCell<Vec<Arc<Page<T>>>>,
     pages: RwLock<Vec<Arc<Page<T>>>>,
+    pushing: AtomicBool,
 }
 
 impl<T: Sized> SharedArena<T> {
+    fn borrow_pages(&self, first_pages: bool) -> Ref<Vec<Arc<Page<T>>>> {
+        match first_pages {
+            true => self.pages1.borrow(),
+            _ => self.pages2.borrow()
+        }
+    }
+
+    fn borrow_pages_mut(&self, first_pages: bool) -> RefMut<Vec<Arc<Page<T>>>> {
+        match first_pages {
+            true => self.pages1.borrow_mut(),
+            _ => self.pages2.borrow_mut()
+        }
+    }
+
     async fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
-        let pages_len = {
-            let pages = self.pages.read().await;
-            let pages_len = pages.len();
+        let first_pages = self.first_pages.load(Ordering::Acquire);
 
-            let last_found = self.last_found.load(Ordering::Acquire);
+        loop {
+            let pages = self.borrow_pages(first_pages);
 
-            let (before, after) = pages.split_at(last_found);
+            let pages_len = {
+                // let pages = self.pages.read().await;
+                let pages_len = pages.len();
 
-            for (index, page) in after.iter().chain(before).enumerate() {
-                if let Some(node) = page.acquire_free_node() {
-                    self.last_found.store((last_found + index + 1) % pages_len, Ordering::Release);
-                    return (page.clone(), node);
+                let last_found = self.last_found.load(Ordering::Acquire);
+
+                let (before, after) = pages.split_at(last_found);
+
+                for (index, page) in after.iter().chain(before).enumerate() {
+                    if let Some(node) = page.acquire_free_node() {
+                        self.last_found.store((last_found + index + 1) % pages_len, Ordering::Release);
+                        return (page.clone(), node);
+                    };
+                }
+
+                pages_len
+            };
+
+            if self.pushing.compare_exchange_weak(
+                false, true, Ordering::SeqCst, Ordering::Relaxed
+            ).is_err() {
+                continue;
+            };
+
+            {
+                let mut other_pages = self.borrow_pages_mut(!first_pages);
+
+                let ptr = pages.as_ptr();
+                let other_ptr_mut = other_pages.as_mut_ptr();
+
+                if other_pages.capacity() <= pages_len {
+                    // Avoid dropping old values
+                    unsafe { other_pages.set_len(0) };
+                    *other_pages = Vec::with_capacity(pages_len * 2);
+                }
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(ptr, other_ptr_mut, pages_len);
+                    other_pages.set_len(pages_len);
                 };
+                other_pages.push(Arc::new(Page::new()));
+
             }
 
-            pages_len
-        };
+            self.first_pages.store(!first_pages, Ordering::Release);
+
+            self.pushing.store(false, Ordering::Release);
+        }
 
         // We didn't find empty space in our pages
         // We lock the arena and allocate a new page
 
         let mut pages = self.pages.write().await;
 
-        if pages.len() > pages_len {
+        if pages.len() > 10 {
+        //if pages.len() > pages_len {
             // Another thread has already pushed a new page
             let last = pages.last().unwrap();
             if let Some(node) = last.acquire_free_node() {
@@ -58,9 +115,15 @@ impl<T: Sized> SharedArena<T> {
     pub fn new() -> SharedArena<T> {
         let mut pages = Vec::with_capacity(32);
         pages.push(Arc::new(Page::new()));
+        let mut pages1 = Vec::with_capacity(1);
+        pages1.push(Arc::new(Page::new()));
         SharedArena {
             pages: RwLock::new(pages),
-            last_found: AtomicUsize::new(0)
+            last_found: AtomicUsize::new(0),
+            first_pages: AtomicBool::new(true),
+            pages1: RefCell::new(pages1),
+            pages2: RefCell::new(Vec::new()),
+            pushing: AtomicBool::new(false),
         }
     }
 

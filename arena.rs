@@ -23,14 +23,14 @@ impl<T: Sized> Arena<T> {
         let (before, after) = self.pages.split_at(self.last_found);
 
         for (index, page) in after.iter().chain(before).enumerate() {
-            if let Some(node) = page.acquire_free_node() {
+            if let Some(node) = page.acquire_free_block() {
                 self.last_found = (self.last_found + index) % self.pages.len();
                 return (page.clone(), node);
             };
         }
 
         let new_page = self.alloc_new_page();
-        let node = new_page.acquire_free_node().unwrap();
+        let node = new_page.acquire_free_block().unwrap();
 
         self.last_found = self.pages.len() - 1;
 

@@ -1,6 +1,4 @@
 
-use async_std::sync::RwLock;
-
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
@@ -8,10 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
 use super::page::{Page, IndexInPage};
 use super::arena_arc::ArenaArc;
 
-use std::cell::{RefCell, Ref, RefMut};
-use std::cell::UnsafeCell;
-
-use crossbeam_epoch::{self as epoch, Owned};
+use crossbeam_epoch::{self as epoch, Owned, Shared, Guard};
 
 pub struct SharedArena<T: Sized> {
     last_found: AtomicUsize,
@@ -25,9 +20,7 @@ struct WriterGuard<'a> {
 
 impl WriterGuard<'_> {
     fn new(writer: &AtomicBool) -> Option<WriterGuard> {
-        if writer.compare_exchange_weak(
-            false, true, SeqCst, Relaxed
-        ).is_err() {
+        if writer.compare_exchange_weak(false, true, SeqCst, Relaxed).is_err() {
             return None;
         };
 
@@ -42,13 +35,8 @@ impl Drop for WriterGuard<'_> {
 }
 
 impl<T: Sized> SharedArena<T> {
-
-    fn with_single_writer(
-        &self,
-        pages: &Vec<Arc<Page<T>>>,
-        guard: &epoch::Guard,
-        fun: impl Fn(),
-    ) {
+    /// Ensure that a single thread is running `fun` at a time
+    fn with_single_writer(&self, pages: &[Arc<Page<T>>], guard: &epoch::Guard, fun: impl Fn()) {
         let _writer_guard = match WriterGuard::new(&self.writer) {
             Some(guard) => guard,
             _ => return
@@ -66,7 +54,7 @@ impl<T: Sized> SharedArena<T> {
         fun();
     }
 
-    async fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
+    fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
 
         let guard = epoch::pin();
 
@@ -120,15 +108,21 @@ impl<T: Sized> SharedArena<T> {
                     return;
                 }
 
-                unsafe {
-                    guard.defer_unchecked(move || {
-                        let mut owned = shared_pages.into_owned();
-                        // We drop the Vec but not the pages because we just
-                        // memcpy them
-                        owned.set_len(0);
-                        println!("DEFER CALLED", );
-                    });
-                }
+                self.free_deferred(shared_pages, Some(0), &guard);
+            });
+        }
+    }
+
+    fn free_deferred(&self, obj: Shared<'_, Vec<Arc<Page<T>>>>, set_len: Option<usize>, guard: &Guard) {
+        unsafe {
+            guard.defer_unchecked(move || {
+                let mut owned = obj.into_owned();
+                if let Some(set_len) = set_len {
+                    // We drop the Vec but not the pages because we just
+                    // memcpy them.
+                    // set_len is None when we want to drop its content
+                    owned.set_len(set_len);
+                };
             });
         }
     }
@@ -143,15 +137,7 @@ impl<T: Sized> SharedArena<T> {
 
         let old = self.pages.swap(Owned::new(new_pages), AcqRel, &guard);
 
-        unsafe {
-            guard.defer_unchecked(move || {
-                println!("DEFER CALLED FROM CLEAR", );
-                old.into_owned()
-                //owned.set_len(0);
-            });
-        }
-
-        guard.flush();
+        self.free_deferred(old, None, &guard);
     }
 
     pub fn new() -> SharedArena<T> {
@@ -165,28 +151,20 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
-    pub async fn check_empty(&self) {
-        // for (index, page) in self.pages.read().await.iter().enumerate() {
-        //     println!("PAGE {} FREE {}", index, page.nfree.load(Relaxed));
-        // }
-    }
-
-    pub async fn alloc(&self, value: T) -> ArenaArc<T> {
-        let (page, node) = self.find_place().await;
+    pub fn alloc(&self, value: T) -> ArenaArc<T> {
+        let (page, node) = self.find_place();
 
         let ptr = page.nodes[node.0].value.get();
-        unsafe {
-            std::ptr::write(ptr, value);
-        }
+        unsafe { std::ptr::write(ptr, value); }
 
         ArenaArc::new(page, node)
     }
 
-    pub async unsafe fn alloc_with<Fun>(&self, fun: Fun) -> ArenaArc<T>
+    pub unsafe fn alloc_with<Fun>(&self, fun: Fun) -> ArenaArc<T>
     where
         Fun: Fn(&mut T)
     {
-        let (page, node) = self.find_place().await;
+        let (page, node) = self.find_place();
 
         let v = page.nodes[node.0].value.get();
         fun(&mut *v);
@@ -194,11 +172,11 @@ impl<T: Sized> SharedArena<T> {
         ArenaArc::new(page, node)
     }
 
-    pub async fn alloc_maybeuninit<Fun>(&self, fun: Fun) -> ArenaArc<T>
+    pub fn alloc_maybeuninit<Fun>(&self, fun: Fun) -> ArenaArc<T>
     where
         Fun: Fn(&mut MaybeUninit<T>)
     {
-        let (page, node) = self.find_place().await;
+        let (page, node) = self.find_place();
 
         let v = page.nodes[node.0].value.get();
         fun(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });

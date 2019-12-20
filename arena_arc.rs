@@ -1,6 +1,6 @@
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
 use super::page::{IndexInPage, Page, Block};
@@ -52,7 +52,7 @@ use super::page::{IndexInPage, Page, Block};
 /// [`Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
 ///
 pub struct ArenaArc<T> {
-    page: Arc<Page<T>>,
+    page: NonNull<Page<T>>,
     block: NonNull<Block<T>>,
 }
 
@@ -66,15 +66,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaArc<T> {
 }
 
 impl<T> ArenaArc<T> {
-    pub fn new(page: Arc<Page<T>>, index_in_page: IndexInPage) -> ArenaArc<T> {
-        let block = &page.nodes[index_in_page.0];
-
-        let counter = block.counter.load(Ordering::Relaxed);
-        assert!(counter == 0, "PoolArc: Counter not zero");
-
-        block.counter.store(1, Ordering::Relaxed);
-        let block = NonNull::from(block);
-
+    pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaArc<T> {
         ArenaArc { block, page }
     }
 }
@@ -87,12 +79,12 @@ impl<T> Clone for ArenaArc<T> {
     fn clone(&self) -> ArenaArc<T> {
         let block = unsafe { self.block.as_ref() };
 
-        let old = block.counter.fetch_add(1, Ordering::Relaxed);
+        let old = block.counter.fetch_add(1, Relaxed);
 
         assert!(old < isize::max_value() as usize);
 
         ArenaArc {
-            page: self.page.clone(),
+            page: self.page,
             block: self.block
         }
     }
@@ -105,34 +97,39 @@ impl<T> std::ops::Deref for ArenaArc<T> {
     }
 }
 
-impl<T> std::ops::DerefMut for ArenaArc<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.block.as_ref().value.get() }
-    }
-}
-
-pub(super) fn drop_block_in_arena<T>(page: &Page<T>, block: &Block<T>) {
+pub(super) fn drop_block_in_arena<T>(page: &mut Page<T>, block: &Block<T>) {
     unsafe {
         // Drop the inner value
         std::ptr::drop_in_place(block.value.get());
     }
 
     let index_in_page = block.index_in_page;
-    let bit = index_in_page % 8;
 
-    let bitfield_ref = &page.bitfield[index_in_page / 8];
+    let bitfield_ref = &page.bitfield;
 
-    let mut bitfield = bitfield_ref.load(Ordering::Relaxed);
+    let mut bitfield = bitfield_ref.load(Relaxed);
 
     // We set our bit to mark the block as free
-    let mut new_bitfield = bitfield | (1 << bit);
+    let mut new_bitfield = bitfield | (1 << index_in_page);
 
     while let Err(x) = bitfield_ref.compare_exchange_weak(
-        bitfield, new_bitfield, Ordering::SeqCst, Ordering::Relaxed
+        bitfield, new_bitfield, SeqCst, Relaxed
     ) {
         bitfield = x;
-        new_bitfield = bitfield | (1 << bit);
+        new_bitfield = bitfield | (1 << index_in_page);
     }
+
+    if !new_bitfield == 1 << 63 {
+        // We were the last block/arena referencing this page
+        // Deallocate it
+        page.deallocate();
+    }
+
+    // if !new_bitfield == 0 {
+    //     // We were the last block/arena referencing this page
+    //     // Deallocate it
+    //     page.deallocate();
+    // }
 }
 
 /// Drop the ArenaArc<T> and decrement its reference counter
@@ -142,11 +139,11 @@ pub(super) fn drop_block_in_arena<T>(page: &Page<T>, block: &Block<T>) {
 impl<T> Drop for ArenaArc<T> {
     fn drop(&mut self) {
         let (page, block) = unsafe {
-            (self.page.as_ref(), self.block.as_ref())
+            (self.page.as_mut(), self.block.as_ref())
         };
 
         // We decrement the reference counter
-        let count = block.counter.fetch_sub(1, Ordering::AcqRel);
+        let count = block.counter.fetch_sub(1, AcqRel);
 
         // We were the last reference
         if count == 1 {

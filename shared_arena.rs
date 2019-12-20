@@ -2,10 +2,11 @@
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
+use std::ptr::NonNull;
 
 use crate::cache_line::CacheAligned;
 
-use super::page::{Page, IndexInPage, BLOCK_PER_PAGE};
+use super::page::{Page, IndexInPage, BLOCK_PER_PAGE, Block};
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
 
@@ -13,7 +14,7 @@ use crossbeam_epoch::{self as epoch, Owned, Shared, Guard};
 
 pub struct SharedArena<T: Sized> {
     last_found: CacheAligned<AtomicUsize>,
-    pages: CacheAligned<epoch::Atomic<Vec<Arc<Page<T>>>>>,
+    pages: CacheAligned<epoch::Atomic<Vec<NonNull<Page<T>>>>>,
     writer: CacheAligned<AtomicBool>,
 }
 
@@ -39,7 +40,7 @@ impl Drop for WriterGuard<'_> {
 
 impl<T: Sized> SharedArena<T> {
     /// Ensure that a single thread is running `fun` at a time
-    fn with_single_writer(&self, pages: &[Arc<Page<T>>], guard: &epoch::Guard, fun: impl Fn()) {
+    fn with_single_writer(&self, pages: &[NonNull<Page<T>>], guard: &epoch::Guard, fun: impl Fn()) {
         let _writer_guard = match WriterGuard::new(&self.writer) {
             Some(guard) => guard,
             _ => return
@@ -57,7 +58,7 @@ impl<T: Sized> SharedArena<T> {
         fun();
     }
 
-    fn find_place(&self) -> (Arc<Page<T>>, IndexInPage) {
+    fn find_place(&self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
 
         let guard = epoch::pin();
 
@@ -72,11 +73,14 @@ impl<T: Sized> SharedArena<T> {
             let (before, after) = pages.split_at(last_found);
 
             for (index, page) in after.iter().chain(before).enumerate() {
-                if let Some(node) = page.acquire_free_block() {
-                    self.last_found.store((last_found + index + 1) % pages_len, Release);
-                    return (page.clone(), node);
+                if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
+                    self.last_found.store((last_found + index) % pages_len, Relaxed);
+                    //self.last_found.store((last_found + index + 1) % pages_len, Release);
+                    return (*page, block);
                 };
             }
+
+            println!("SHARED: ALLOCATING MORE", );
 
             // At this point, we didn't find empty space in our pages
             // We have to allocate new pages and we allow only 1 thread
@@ -100,8 +104,8 @@ impl<T: Sized> SharedArena<T> {
 
     fn alloc_new_pages(
         &self,
-        shared_pages: Shared<'_, Vec<Arc<Page<T>>>>,
-        pages: &[Arc<Page<T>>],
+        shared_pages: Shared<'_, Vec<NonNull<Page<T>>>>,
+        pages: &[NonNull<Page<T>>],
         new_len: usize,
         guard: &Guard
     ) -> bool {
@@ -120,7 +124,7 @@ impl<T: Sized> SharedArena<T> {
         }
 
         // Fill the rest with new pages
-        new_pages.resize_with(new_len, Default::default);
+        new_pages.resize_with(new_len, Page::<T>::new);
 
         // Replace self.pages by our new Vec
         if self.pages.compare_and_set(
@@ -140,7 +144,7 @@ impl<T: Sized> SharedArena<T> {
         true
     }
 
-    fn drop_deferred(&self, obj: Shared<'_, Vec<Arc<Page<T>>>>, set_len: Option<usize>, guard: &Guard) {
+    fn drop_deferred(&self, obj: Shared<'_, Vec<NonNull<Page<T>>>>, set_len: Option<usize>, guard: &Guard) {
         unsafe {
             guard.defer_unchecked(move || {
                 let mut owned = obj.into_owned();
@@ -188,7 +192,7 @@ impl<T: Sized> SharedArena<T> {
     pub fn clear(&self) {
         let guard = epoch::pin();
 
-        let new_pages = vec![Default::default()];
+        let new_pages = vec![Page::<T>::new()];
 
         let old = self.pages.swap(Owned::new(new_pages), AcqRel, &guard);
 
@@ -332,7 +336,7 @@ impl<T: Sized> SharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
 
         let mut pages = Vec::with_capacity(npages);
-        pages.resize_with(npages, Default::default);
+        pages.resize_with(npages, Page::<T>::new);
 
         SharedArena {
             last_found: CacheAligned::new(AtomicUsize::new(0)),
@@ -355,12 +359,18 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// [`ArenaBox`]: ./struct.ArenaBox.html
     pub fn alloc(&self, value: T) -> ArenaBox<T> {
-        let (page, node) = self.find_place();
+        let (page, block) = self.find_place();
 
-        let ptr = page.nodes[node.0].value.get();
-        unsafe { std::ptr::write(ptr, value); }
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            ptr.write(value);
+            ArenaBox::new(page, block)
+        }
+        // let ptr = page.nodes[node].value.get();
+        // unsafe { std::ptr::write(ptr, value); }
 
-        ArenaBox::new(page, node)
+        // unreachable!();
+        // ArenaBox::new(unsafe { std::mem::uninitialized() }, node)
     }
 
     /// Finds an empty space in the arena and calls the function `initializer`
@@ -408,12 +418,19 @@ impl<T: Sized> SharedArena<T> {
     where
         F: Fn(&mut MaybeUninit<T>)
     {
-        let (page, node) = self.find_place();
+        let (page, block) = self.find_place();
 
-        let v = page.nodes[node.0].value.get();
-        initializer(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            ArenaBox::new(page, block)
+        }
 
-        ArenaBox::new(page, node)
+        // let v = page.nodes[node].value.get();
+        // initializer(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
+
+        // unreachable!();
+        // ArenaBox::new(unsafe { std::mem::uninitialized() }, node)
     }
 
     /// Writes a value in the arena, and returns an [`ArenaArc`]
@@ -430,12 +447,17 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// [`ArenaArc`]: ./struct.ArenaArc.html
     pub fn alloc_arc(&self, value: T) -> ArenaArc<T> {
-        let (page, node) = self.find_place();
+        let (page, block) = self.find_place();
 
-        let ptr = page.nodes[node.0].value.get();
-        unsafe { std::ptr::write(ptr, value); }
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            ptr.write(value);
+            ArenaArc::new(page, block)
+        }
+        // let ptr = page.nodes[node].value.get();
+        // unsafe { std::ptr::write(ptr, value); }
 
-        ArenaArc::new(page, node)
+        // ArenaArc::new(page, node)
     }
 
     /// Finds an empty space in the arena and calls the function `initializer`
@@ -483,12 +505,35 @@ impl<T: Sized> SharedArena<T> {
     where
         F: Fn(&mut MaybeUninit<T>)
     {
-        let (page, node) = self.find_place();
+        let (page, block) = self.find_place();
 
-        let v = page.nodes[node.0].value.get();
-        initializer(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            ArenaArc::new(page, block)
+        }
+        // let v = page.nodes[node].value.get();
+        // initializer(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
 
-        ArenaArc::new(page, node)
+        // ArenaArc::new(page, node)
+    }
+
+    pub fn stats(&self) -> usize {
+        let guard = epoch::pin();
+
+        let pages = self.pages.load(Acquire, &guard);
+        let pages = unsafe { pages.as_ref().unwrap() };
+
+        let mut used = 0;
+
+        // for page in pages.iter() {
+        //     used += page.bitfield
+        //                 .iter()
+        //                 .map(|b| b.load(Relaxed).count_zeros() as usize)
+        //                 .sum::<usize>();
+        // }
+
+        used
     }
 
     // pub unsafe fn alloc_with<Fun>(&self, fun: Fun) -> ArenaArc<T>
@@ -497,7 +542,7 @@ impl<T: Sized> SharedArena<T> {
     // {
     //     let (page, node) = self.find_place();
 
-    //     let v = page.nodes[node.0].value.get();
+    //     let v = page.nodes[node].value.get();
     //     fun(&mut *v);
 
     //     ArenaArc::new(page, node)
@@ -535,10 +580,11 @@ impl<T> std::fmt::Debug for SharedArena<T> {
             let mut vec = Vec::with_capacity(pages.len());
 
             for page in pages.iter() {
-                let used = page.bitfield
-                               .iter()
-                               .map(|b| b.load(Relaxed).count_zeros() as usize)
-                               .sum::<usize>();
+                // let used = page.bitfield
+                //                .iter()
+                //                .map(|b| b.load(Relaxed).count_zeros() as usize)
+                //                .sum::<usize>();
+                let used = unsafe { page.as_ref() }.bitfield.load(Relaxed).count_zeros() as usize;
                 vec.push(Page {
                     used,
                     free: super::page::BLOCK_PER_PAGE - used,

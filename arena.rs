@@ -1,81 +1,129 @@
 
 use std::sync::Arc;
 use std::mem::MaybeUninit;
+use std::ptr::NonNull;
+use std::sync::atomic::Ordering::*;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::slice;
 
-use super::page::{Page, IndexInPage};
+use super::page::{Block, Page, BLOCK_PER_PAGE};
 use super::arena_arc::ArenaArc;
+use super::arena_box::ArenaBox;
+use crate::cache_line::CacheAligned;
 
 pub struct Arena<T: Sized> {
     last_found: usize,
-    pages: Vec<Arc<Page<T>>>,
+    pages: Vec<NonNull<Page<T>>>,
 }
 
 unsafe impl<T: Sized> Send for Arena<T> {}
 
 impl<T: Sized> Arena<T> {
-    fn alloc_new_page(&mut self) -> Arc<Page<T>> {
-        let new_page = Arc::new(Page::new());
-        self.pages.push(new_page.clone());
-        new_page
+    fn alloc_new_page(&mut self) -> NonNull<Page<T>> {
+        let len = self.pages.len();
+        let new_len = len + len.min(900_000);
+
+        self.pages.resize_with(new_len, Page::<T>::new);
+
+        self.pages[len]
     }
 
-    fn find_place(&mut self) -> (Arc<Page<T>>, IndexInPage) {
-        let (before, after) = self.pages.split_at(self.last_found);
+    fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
+        let pages_len = self.pages.len();
+
+        let last_found = self.last_found % pages_len;
+
+        let (before, after) = self.pages.split_at(last_found);
 
         for (index, page) in after.iter().chain(before).enumerate() {
-            if let Some(node) = page.acquire_free_block() {
-                self.last_found = (self.last_found + index) % self.pages.len();
-                return (page.clone(), node);
+            if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
+                self.last_found = last_found + index;
+                return (*page, block);
             };
+            // let time = coarsetime::Instant::now().as_u64();
         }
 
-        let new_page = self.alloc_new_page();
-        let node = new_page.acquire_free_block().unwrap();
+        println!("ALLOCATING MORE {} {} {:?}", self.pages.len(), self.pages.len() * 32, self.stats());
 
-        self.last_found = self.pages.len() - 1;
+        self.last_found = self.pages.len();
+
+        let new_page = self.alloc_new_page();
+        let node = unsafe { new_page.as_ref() }.acquire_free_block().unwrap();
 
         (new_page, node)
     }
 
-    pub fn new() -> Arena<T> {
-        let mut pages = Vec::with_capacity(32);
-        pages.push(Arc::new(Page::new()));
-        Arena { pages, last_found: 0 }
-    }
+    pub fn with_capacity(cap: usize) -> Arena<T> {
+        let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
 
-    pub fn alloc(&mut self, value: T) -> ArenaArc<T> {
-        let (page, node) = self.find_place();
+        let mut pages = Vec::with_capacity(npages);
 
-        let ptr = page.nodes[node.0].value.get();
-        unsafe {
-            std::ptr::write(ptr, value);
+        pages.resize_with(npages, Page::<T>::new);
+
+        Arena {
+            last_found: 0,
+            pages,
         }
-
-        ArenaArc::new(page, node)
     }
 
-    pub unsafe fn alloc_with<Fun>(&mut self, fun: Fun) -> ArenaArc<T>
-    where
-        Fun: Fn(&mut T)
-    {
-        let (page, node) = self.find_place();
-
-        let v = page.nodes[node.0].value.get();
-        fun(&mut *v);
-
-        ArenaArc::new(page, node)
+    pub fn new() -> Arena<T> {
+        Arena::with_capacity(BLOCK_PER_PAGE)
     }
 
-    pub fn alloc_maybeuninit<Fun>(&mut self, fun: Fun) -> ArenaArc<T>
+    pub fn alloc(&mut self, value: T) -> ArenaBox<T> {
+        let (page, block) = self.find_place();
+
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            ptr.write(value);
+            ArenaBox::new(page, block)
+        }
+    }
+
+    pub fn alloc_in_place<F>(&mut self, initializer: F) -> ArenaBox<T>
     where
-        Fun: Fn(&mut MaybeUninit<T>)
+        F: Fn(&mut MaybeUninit<T>)
     {
-        let (page, node) = self.find_place();
+        let (page, block) = self.find_place();
 
-        let v = page.nodes[node.0].value.get();
-        fun(unsafe { &mut *(v as *mut std::mem::MaybeUninit<T>) });
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            ArenaBox::new(page, block)
+        }
+    }
 
-        ArenaArc::new(page, node)
+    pub fn alloc_arc(&mut self, value: T) -> ArenaArc<T> {
+        let (page, block) = self.find_place();
+
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            ptr.write(value);
+            ArenaArc::new(page, block)
+        }
+    }
+
+    pub fn npages(&self) -> usize {
+        self.pages.len()
+    }
+
+    pub fn stats(&self) -> usize {
+        let used = self
+            .pages
+            .iter()
+            .map(|p| unsafe { p.as_ref() }.bitfield.load(Relaxed).count_zeros() as usize)
+            .sum::<usize>();
+
+        // We don't count bits dedicated to the pages
+        used - self.pages.len()
+    }
+}
+
+impl<T> Drop for Arena<T> {
+    fn drop(&mut self) {
+        for ptr in self.pages.iter_mut() {
+            unsafe { std::ptr::drop_in_place(ptr.as_mut()) };
+        }
     }
 }
 

@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::ptr::NonNull;
 
+use static_assertions::const_assert;
+
 use super::page::{IndexInPage, Page, Block};
 
 /// A pointer to `T` in the arena
@@ -32,8 +34,8 @@ use super::page::{IndexInPage, Page, Block};
 /// [`DerefMut`]: https://doc.rust-lang.org/std/ops/trait.DerefMut.html
 ///
 pub struct ArenaBox<T> {
-    page: Arc<Page<T>>,
     block: NonNull<Block<T>>,
+    page: NonNull<Page<T>>,
 }
 
 unsafe impl<T: Send> Send for ArenaBox<T> {}
@@ -46,15 +48,24 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaBox<T> {
 }
 
 impl<T> ArenaBox<T> {
-    pub fn new(page: Arc<Page<T>>, index_in_page: IndexInPage) -> ArenaBox<T> {
-        let block = &page.nodes[index_in_page.0];
+    #[inline(never)]
+    pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaBox<T> {
+        // let block = &page.nodes[index_in_page];
 
-        let counter = block.counter.load(Ordering::Relaxed);
-        assert!(counter == 0, "PoolBox: Counter not zero");
+        // let counter = unsafe { block.as_ref() }.counter.load(Ordering::Relaxed);
+
+        // if counter != 0 {
+        //     let index = unsafe { block.as_ref() }.index_in_page;
+        //     panic!("PoolBox Counter not zero at index {} {}", index, counter);
+        // }
+
+        // assert!(counter == 0, "PoolBox: Counter not zero {}", counter);
 
         // We still store 1 in the counter to make the asserts works
-        block.counter.store(1, Ordering::Release);
-        let block = NonNull::from(block);
+        // unsafe { block.as_ref() }.counter.store(1, Ordering::Release);
+        // let block = NonNull::from(block);
+
+        //let block = unsafe { std::mem::uninitialized() };
 
         ArenaBox { block, page }
     }
@@ -79,11 +90,11 @@ impl<T> std::ops::DerefMut for ArenaBox<T> {
 impl<T> Drop for ArenaBox<T> {
     fn drop(&mut self) {
         let (page, block) = unsafe {
-            (self.page.as_ref(), self.block.as_ref())
+            (self.page.as_mut(), self.block.as_ref())
         };
 
-        let count = block.counter.fetch_sub(1, Ordering::Acquire);
-        assert!(count == 1, "ArenaBox has a counter != 1 on drop");
+        // let counter = block.counter.fetch_sub(1, Ordering::Acquire);
+        // assert!(counter == 1, "ArenaBox has a counter != 1 on drop {}", counter);
 
         super::arena_arc::drop_block_in_arena(page, block);
     }

@@ -1,6 +1,6 @@
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
 use static_assertions::const_assert;
@@ -20,9 +20,9 @@ use super::page::{IndexInPage, Page, Block};
 /// threads.
 ///
 /// ```
-/// use shared_arena::{ArenaBox, SharedArena};
+/// use shared_arena::{ArenaBox, Arena};
 ///
-/// let arena = shared_arena::new();
+/// let arena = Arena::new();
 /// let mut my_vec: ArenaBox<_> = arena::alloc(Vec::new());
 ///
 /// my_vec.push(1);
@@ -33,6 +33,31 @@ use super::page::{IndexInPage, Page, Block};
 /// [`SharedArena`]: ./struct.SharedArena.html
 /// [`DerefMut`]: https://doc.rust-lang.org/std/ops/trait.DerefMut.html
 ///
+// Implementation details:
+//
+// We make the struct repr(C) to ensure that the pointer to Block remains
+// at offset 0. This is to avoid any pointer arithmetic when dereferencing the
+// inner value
+//
+// TODO: Should we use a tagged pointer here ?
+// The pointer to Page is used to have access to the bitfield and deallocate
+// the Page when necessary.
+// However we could tag the block pointer to retrieve the Page and so ArenaBox
+// would have the size of 1 pointer only, instead of 2 now.
+// This has 2 inconvenients:
+// - Block would be aligned on 64 bytes to allow a big enough tag
+//   This could make the Page way bigger than necessary
+//   Or we could use the unused msb in the pointer (16 with 64 bits ptrs) but
+//   it would not work with 32 bits ptrs
+// - Dereferencing would involved removing the tag
+//   Though the compiler could cache the pointer somehow on its first used
+//
+// The inconvenients with 2 pointers:
+// - Its size, when moving the struct around
+// - Do not allow non-null pointer optimization (e.g with Option<ArenaBox<T>>)
+//
+// Benchmarks have to be made.
+#[repr(C)]
 pub struct ArenaBox<T> {
     block: NonNull<Block<T>>,
     page: NonNull<Page<T>>,
@@ -50,22 +75,19 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaBox<T> {
 impl<T> ArenaBox<T> {
     #[inline(never)]
     pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaBox<T> {
-        // let block = &page.nodes[index_in_page];
+        let counter_ref = &unsafe { block.as_ref() }.counter;
 
-        // let counter = unsafe { block.as_ref() }.counter.load(Ordering::Relaxed);
+        // See ArenaArc<T>::new for more info.
+        // We should avoid this with ArenaBox, but still do it for sanity
+        // and be 100% sure to avoid any memory corruption.
+        // The slowest operation here is dereferencing the block, though.
+        // So ArenaArc and ArenaBox have the same performance on creation.
+        // However dropping an ArenaBox is cheaper.
 
-        // if counter != 0 {
-        //     let index = unsafe { block.as_ref() }.index_in_page;
-        //     panic!("PoolBox Counter not zero at index {} {}", index, counter);
-        // }
+        let counter = counter_ref.load(Relaxed);
+        assert!(counter == 0, "PoolBox: Counter not zero {}", counter);
 
-        // assert!(counter == 0, "PoolBox: Counter not zero {}", counter);
-
-        // We still store 1 in the counter to make the asserts works
-        // unsafe { block.as_ref() }.counter.store(1, Ordering::Release);
-        // let block = NonNull::from(block);
-
-        //let block = unsafe { std::mem::uninitialized() };
+        counter_ref.store(1, Relaxed);
 
         ArenaBox { block, page }
     }
@@ -93,8 +115,14 @@ impl<T> Drop for ArenaBox<T> {
             (self.page.as_mut(), self.block.as_ref())
         };
 
-        // let counter = block.counter.fetch_sub(1, Ordering::Acquire);
-        // assert!(counter == 1, "ArenaBox has a counter != 1 on drop {}", counter);
+        // See ArenaBox<T>::new for why we touch the counter
+
+        let counter_ref = &block.counter;
+
+        let counter = counter_ref.load(Relaxed);
+        assert!(counter == 1, "PoolBox: Counter != 1 on drop {}", counter);
+
+        counter_ref.store(0, Relaxed);
 
         super::arena_arc::drop_block_in_arena(page, block);
     }

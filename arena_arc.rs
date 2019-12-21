@@ -51,9 +51,13 @@ use super::page::{IndexInPage, Page, Block};
 /// [`ArenaBox`]: ./struct.ArenaBox.html
 /// [`Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
 ///
+// Implementation details:
+//
+// See ArenaBox
+#[repr(C)]
 pub struct ArenaArc<T> {
-    page: NonNull<Page<T>>,
     block: NonNull<Block<T>>,
+    page: NonNull<Page<T>>,
 }
 
 unsafe impl<T: Send> Send for ArenaArc<T> {}
@@ -67,6 +71,19 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaArc<T> {
 
 impl<T> ArenaArc<T> {
     pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaArc<T> {
+        let counter_ref = &unsafe { block.as_ref() }.counter;
+
+        // Don't use compare_exchange here, it's too expensive
+        // Relaxed load/store are just movs
+        // We read the counter just for sanity check.
+        // The bitfield indicated the block as free so it's guarantee to be zero,
+        // but we check, just in case something went wrong
+
+        let counter = counter_ref.load(Relaxed);
+        assert!(counter == 0, "PoolArc: Counter not zero {}", counter);
+
+        counter_ref.store(1, Relaxed);
+
         ArenaArc { block, page }
     }
 }
@@ -77,9 +94,9 @@ impl<T> Clone for ArenaArc<T> {
     /// This increase the reference counter.
     #[inline]
     fn clone(&self) -> ArenaArc<T> {
-        let block = unsafe { self.block.as_ref() };
+        let counter_ref = &unsafe { self.block.as_ref() }.counter;
 
-        let old = block.counter.fetch_add(1, Relaxed);
+        let old = counter_ref.fetch_add(1, Relaxed);
 
         assert!(old < isize::max_value() as usize);
 
@@ -119,17 +136,12 @@ pub(super) fn drop_block_in_arena<T>(page: &mut Page<T>, block: &Block<T>) {
         new_bitfield = bitfield | (1 << index_in_page);
     }
 
+    // The bit dedicated to the Page is inversed (1 for used, 0 for free)
     if !new_bitfield == 1 << 63 {
         // We were the last block/arena referencing this page
         // Deallocate it
         page.deallocate();
     }
-
-    // if !new_bitfield == 0 {
-    //     // We were the last block/arena referencing this page
-    //     // Deallocate it
-    //     page.deallocate();
-    // }
 }
 
 /// Drop the ArenaArc<T> and decrement its reference counter

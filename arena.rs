@@ -42,7 +42,6 @@ impl<T: Sized> Arena<T> {
                 self.last_found = last_found + index;
                 return (*page, block);
             };
-            // let time = coarsetime::Instant::now().as_u64();
         }
 
         println!("ALLOCATING MORE {} {} {:?}", self.pages.len(), self.pages.len() * 32, self.stats());

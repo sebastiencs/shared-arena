@@ -1,7 +1,7 @@
 
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicPtr, Ordering::*};
 use std::ptr::NonNull;
 
 use crate::cache_line::CacheAligned;
@@ -12,9 +12,14 @@ use super::arena_box::ArenaBox;
 
 use crossbeam_epoch::{self as epoch, Owned, Shared, Guard};
 
-pub struct SharedArena<T: Sized> {
+struct VecShared<T> {
+    vec: Vec<NonNull<Page<T>>>,
+    counter: AtomicUsize,
+}
+
+pub struct NewSharedArena<T: Sized> {
     last_found: CacheAligned<AtomicUsize>,
-    pages: CacheAligned<epoch::Atomic<Vec<NonNull<Page<T>>>>>,
+    pages: CacheAligned<AtomicPtr<VecShared<T>>>,
     writer: CacheAligned<AtomicBool>,
 }
 
@@ -24,7 +29,7 @@ struct WriterGuard<'a> {
 
 impl WriterGuard<'_> {
     fn new(writer: &AtomicBool) -> Option<WriterGuard> {
-        if writer.compare_exchange_weak(false, true, SeqCst, Relaxed).is_err() {
+        if writer.compare_exchange(false, true, SeqCst, Relaxed).is_err() {
             return None;
         };
 
@@ -34,22 +39,21 @@ impl WriterGuard<'_> {
 
 impl Drop for WriterGuard<'_> {
     fn drop(&mut self) {
-        self.writer.store(false, SeqCst);
+        self.writer.store(false, Release);
     }
 }
 
-impl<T: Sized> SharedArena<T> {
+impl<T: Sized> NewSharedArena<T> {
     /// Ensure that a single thread is running `fun` at a time
-    fn with_single_writer(&self, pages: &[NonNull<Page<T>>], guard: &epoch::Guard, fun: impl Fn()) {
+    fn with_single_writer(&self, pages_ptr: *mut VecShared<T>, fun: impl Fn()) {
         let _writer_guard = match WriterGuard::new(&self.writer) {
             Some(guard) => guard,
             _ => return
         };
 
         {
-            let current_pages = self.pages.load(Acquire, guard);
-            let current_pages = unsafe { current_pages.as_ref().unwrap() };
-            if pages.as_ptr() != current_pages.as_ptr() {
+            let current_pages = self.pages.load(Acquire);
+            if pages_ptr != current_pages {
                 // pages has already been updated
                 return;
             }
@@ -60,26 +64,44 @@ impl<T: Sized> SharedArena<T> {
 
     fn find_place(&self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
 
-        let guard = epoch::pin();
+        // let guard = epoch::pin();
 
         loop {
-            let shared_pages = self.pages.load(Acquire, &guard);
 
-            let pages = unsafe { shared_pages.as_ref().unwrap() };
-            let pages_len = pages.len();
+            let mut last_found = self.last_found.load(Relaxed);
 
-            let last_found = self.last_found.load(Acquire) % pages_len;
+            let (pages_ptr, pages_len) = 'valid_ptr: loop {
 
-            let (before, after) = pages.split_at(last_found);
+                let ptr_loaded = coarsetime::Instant::now();
 
-            for (index, page) in after.iter().chain(before).enumerate() {
-                if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
-                    self.last_found.store((last_found + index), Relaxed);
-//                    self.last_found.store((last_found + index) % pages_len, Relaxed);
-                    //self.last_found.store((last_found + index + 1) % pages_len, Release);
-                    return (*page, block);
-                };
-            }
+                let pages_ptr = &self.pages.load(Acquire);
+
+                let pages = &pages_ptr.vec;
+                let pages_len = pages.len();
+
+                last_found = last_found % pages_len;
+
+                let (before, after) = pages.split_at(last_found);
+
+                if ptr_loaded.elapsed().as_secs() > 1 {
+                    continue 'valid_ptr;
+                }
+
+                for (index, page) in after.iter().chain(before).enumerate() {
+                    if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
+                        self.last_found.store(last_found + index, Relaxed);
+                        //self.last_found.store((last_found + index + 1) % pages_len, Release);
+                        return (*page, block);
+                    };
+
+                    if ptr_loaded.elapsed().as_secs() > 1 {
+                        last_found += index;
+                        continue 'valid_ptr;
+                    }
+                }
+
+                (pages_ptr, pages_len)
+            };
 
             println!("SHARED: ALLOCATING MORE {:#?}", self);
 
@@ -94,7 +116,7 @@ impl<T: Sized> SharedArena<T> {
             // Another way to deal with this it to make other threads spin loop
             // until self.pages has changed
 
-            self.with_single_writer(pages, &guard, || {
+            self.with_single_writer(pages_ptr, || {
                 // Double the number of pages
                 let new_len = pages_len * 2;
 
@@ -170,9 +192,9 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
-    /// let arena = SharedArena::with_capacity(100);
+    /// let arena = NewSharedArena::with_capacity(100);
     /// let mut values = Vec::new();
     ///
     /// for i in 0..100 {
@@ -217,9 +239,9 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
-    /// let arena = SharedArena::with_capacity(100);
+    /// let arena = NewSharedArena::with_capacity(100);
     /// arena.resize(200);
     /// ```
     ///
@@ -294,7 +316,7 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
-    /// Constructs a new SharedArena capable of holding exactly 32 elements
+    /// Constructs a new NewSharedArena capable of holding exactly 32 elements
     ///
     /// The Arena will reallocate itself if there is not enough space
     /// when allocating (with alloc* functions)
@@ -302,19 +324,19 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
-    /// let arena = SharedArena::new();
+    /// let arena = NewSharedArena::new();
     /// ```
     ///
-    /// [`alloc`]: struct.SharedArena.html#method.alloc
-    /// [`alloc_with`]: struct.SharedArena.html#method.alloc_with
-    /// [`alloc_maybeuninit`]: struct.SharedArena.html#method.alloc_maybeuninit
-    pub fn new() -> SharedArena<T> {
+    /// [`alloc`]: struct.NewSharedArena.html#method.alloc
+    /// [`alloc_with`]: struct.NewSharedArena.html#method.alloc_with
+    /// [`alloc_maybeuninit`]: struct.NewSharedArena.html#method.alloc_maybeuninit
+    pub fn new() -> NewSharedArena<T> {
         Self::with_capacity(1)
     }
 
-    /// Constructs a new SharedArena capable of holding at least `cap` elements
+    /// Constructs a new NewSharedArena capable of holding at least `cap` elements
     ///
     /// Because the arena allocate by page of 32 elements, it might
     /// hold more elements than `cap`.
@@ -325,21 +347,21 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
-    /// let arena = SharedArena::with_capacity(2048);
+    /// let arena = NewSharedArena::with_capacity(2048);
     /// ```
     ///
-    /// [`alloc`]: struct.SharedArena.html#method.alloc
-    /// [`alloc_with`]: struct.SharedArena.html#method.alloc_with
-    /// [`alloc_maybeuninit`]: struct.SharedArena.html#method.alloc_maybeuninit
-    pub fn with_capacity(cap: usize) -> SharedArena<T> {
+    /// [`alloc`]: struct.NewSharedArena.html#method.alloc
+    /// [`alloc_with`]: struct.NewSharedArena.html#method.alloc_with
+    /// [`alloc_maybeuninit`]: struct.NewSharedArena.html#method.alloc_maybeuninit
+    pub fn with_capacity(cap: usize) -> NewSharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
 
         let mut pages = Vec::with_capacity(npages);
         pages.resize_with(npages, Page::<T>::new);
 
-        SharedArena {
+        NewSharedArena {
             last_found: CacheAligned::new(AtomicUsize::new(0)),
             writer: CacheAligned::new(AtomicBool::new(false)),
             pages: CacheAligned::new(epoch::Atomic::new(pages)),
@@ -352,9 +374,9 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
-    /// let arena = SharedArena::new();
+    /// let arena = NewSharedArena::new();
     /// let my_num: ArenaBox<u8> = arena.alloc(0xFF);
     /// ```
     ///
@@ -397,14 +419,14 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
     /// #[derive(Copy, Clone)]
     /// struct MyStruct { .. }
     ///
     /// let ref_struct: &MyStruct = ..;
     ///
-    /// let arena = SharedArena::new();
+    /// let arena = NewSharedArena::new();
     /// let my_struct: ArenaBox<MyStruct> = arena.alloc_in_place(|place| {
     ///     unsafe {
     ///         std::ptr::copy(ref_struct, place.as_mut_ptr(), 1);
@@ -413,7 +435,7 @@ impl<T: Sized> SharedArena<T> {
     /// ```
     ///
     /// [`ArenaBox`]: ./struct.ArenaBox.html
-    /// [`alloc`]: struct.SharedArena.html#method.alloc
+    /// [`alloc`]: struct.NewSharedArena.html#method.alloc
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_in_place<F>(&self, initializer: F) -> ArenaBox<T>
     where
@@ -440,9 +462,9 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
-    /// let arena = SharedArena::new();
+    /// let arena = NewSharedArena::new();
     /// let my_num: ArenaArc<u8> = arena.alloc_arc(0xFF);
     /// ```
     ///
@@ -484,14 +506,14 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::NewSharedArena;
     ///
     /// #[derive(Copy, Clone)]
     /// struct MyStruct { .. }
     ///
     /// let ref_struct: &MyStruct = ..;
     ///
-    /// let arena = SharedArena::new();
+    /// let arena = NewSharedArena::new();
     /// let my_struct: ArenaArc<MyStruct> = arena.alloc_in_place_arc(|place| {
     ///     unsafe {
     ///         std::ptr::copy(ref_struct, place.as_mut_ptr(), 1);
@@ -552,16 +574,16 @@ impl<T: Sized> SharedArena<T> {
     // }
 }
 
-unsafe impl<T: Sized> Send for SharedArena<T> {}
-unsafe impl<T: Sized> Sync for SharedArena<T> {}
+unsafe impl<T: Sized> Send for NewSharedArena<T> {}
+unsafe impl<T: Sized> Sync for NewSharedArena<T> {}
 
-impl<T: Sized> Default for SharedArena<T> {
-    fn default() -> SharedArena<T> {
-        SharedArena::new()
+impl<T: Sized> Default for NewSharedArena<T> {
+    fn default() -> NewSharedArena<T> {
+        NewSharedArena::new()
     }
 }
 
-impl<T> std::fmt::Debug for SharedArena<T> {
+impl<T> std::fmt::Debug for NewSharedArena<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         struct Page {
             free: usize,

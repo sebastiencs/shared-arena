@@ -58,13 +58,9 @@ impl<T: Sized> Arena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
 
         let mut pages = Vec::with_capacity(npages);
-
         pages.resize_with(npages, Page::<T>::new);
 
-        Arena {
-            last_found: 0,
-            pages,
-        }
+        Arena { last_found: 0, pages }
     }
 
     pub fn new() -> Arena<T> {

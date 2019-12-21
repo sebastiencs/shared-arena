@@ -75,6 +75,7 @@ impl<T> Page<T> {
     /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
     ///
     /// If there is no free block, it returns None
+    #[inline(never)]
     pub fn acquire_free_block(&self) -> Option<NonNull<Block<T>>> {
 
         let mut bitfield = self.bitfield.load(Relaxed);

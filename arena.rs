@@ -19,6 +19,7 @@ pub struct Arena<T: Sized> {
 unsafe impl<T: Sized> Send for Arena<T> {}
 
 impl<T: Sized> Arena<T> {
+    #[inline(never)]
     fn alloc_new_page(&mut self) -> NonNull<Page<T>> {
         let len = self.pages.len();
         let new_len = len + len.min(900_000);
@@ -28,6 +29,7 @@ impl<T: Sized> Arena<T> {
         self.pages[len]
     }
 
+    #[inline(never)]
     fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
         let pages_len = self.pages.len();
 

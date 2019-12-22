@@ -63,18 +63,17 @@ impl<T: Sized> SharedArena<T> {
         let guard = epoch::pin();
 
         loop {
+            let last_found = self.last_found.load(Relaxed);
             let shared_pages = self.pages.load(Acquire, &guard);
 
             let pages = unsafe { shared_pages.as_ref().unwrap() };
             let pages_len = pages.len();
 
-            let last_found = self.last_found.load(Acquire) % pages_len;
-
-            let (before, after) = pages.split_at(last_found);
+            let (before, after) = pages.split_at(last_found % pages_len);
 
             for (index, page) in after.iter().chain(before).enumerate() {
                 if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
-                    self.last_found.store((last_found + index), Relaxed);
+                    self.last_found.store(last_found + index, Relaxed);
 //                    self.last_found.store((last_found + index) % pages_len, Relaxed);
                     //self.last_found.store((last_found + index + 1) % pages_len, Release);
                     return (*page, block);

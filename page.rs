@@ -18,7 +18,7 @@ use crate::cache_line::CacheAligned;
 
 pub type IndexInPage = usize;
 
-const BITFIELD_WIDTH: usize = 64;
+pub const BITFIELD_WIDTH: usize = 64;
 pub const BLOCK_PER_PAGE: usize = BITFIELD_WIDTH - 1;
 
 type Bitfield = AtomicU64;

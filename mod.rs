@@ -5,10 +5,13 @@ mod arena;
 pub mod page;
 mod arena_arc;
 mod arena_box;
+mod pool;
 
 pub use {
     arena::Arena,
     shared_arena::SharedArena,
     arena_arc::ArenaArc,
-    arena_box::ArenaBox
+    arena_box::ArenaBox,
+    pool::PoolBox,
+    pool::Pool,
 };

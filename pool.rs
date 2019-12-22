@@ -2,6 +2,123 @@
 use std::cell::UnsafeCell;
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
+use std::marker::PhantomData;
+
+pub struct CircularIter<'a, T> {
+    start: *const T,
+    end: *const T,
+    next_start: *const T,
+    next_end: *const T,
+    _marker: PhantomData<&'a T>
+}
+
+impl<'a, T> Iterator for CircularIter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<&'a T> {
+        if self.start != self.end {
+            let current = self.start;
+            unsafe {
+                self.start = current.add(1);
+                Some(&*current)
+            }
+        } else if !self.next_start.is_null() {
+            let next = unsafe { &*self.next_start };
+            self.start = unsafe { self.next_start.add(1) };
+            self.end = self.next_end;
+            self.next_start = std::ptr::null();
+            Some(next)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct CircularIterMut<'a, T> {
+    start: *mut T,
+    end: *mut T,
+    next_start: *mut T,
+    next_end: *mut T,
+    _marker: PhantomData<&'a T>
+}
+
+impl<'a, T> Iterator for CircularIterMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<&'a mut T> {
+        if self.start != self.end {
+            let current = self.start;
+            unsafe {
+                self.start = current.add(1);
+                Some(&mut *current)
+            }
+            // Some(unsafe { &mut *self.start })
+        } else if !self.next_start.is_null() {
+            let next = unsafe { &mut *self.next_start };
+            self.start = unsafe { self.next_start.add(1) };
+            self.end = self.next_end;
+            self.next_start = std::ptr::null_mut();
+            Some(next)
+        } else {
+            None
+        }
+    }
+}
+
+pub trait CircularIterator<T> {
+    fn circular_iter(&self, split_at: usize) -> CircularIter<T>;
+    fn circular_iter_mut(&mut self, split_at: usize) -> CircularIterMut<T>;
+}
+
+impl<T> CircularIterator<T> for Vec<T> {
+    fn circular_iter(&self, split_at: usize) -> CircularIter<T> {
+        let len = self.len();
+        let ptr = self.as_ptr();
+        unsafe {
+            if split_at < len && split_at != 0 {
+                CircularIter {
+                    start: ptr.add(split_at),
+                    end: ptr.add(len),
+                    next_start: ptr,
+                    next_end: ptr.add(split_at),
+                    _marker: PhantomData
+                }
+            } else {
+                CircularIter {
+                    start: ptr,
+                    end: ptr.add(len),
+                    next_start: std::ptr::null(),
+                    next_end: std::ptr::null(),
+                    _marker: PhantomData
+                }
+            }
+        }
+    }
+
+    fn circular_iter_mut(&mut self, split_at: usize) -> CircularIterMut<T> {
+        let len = self.len();
+        let ptr = self.as_mut_ptr();
+        unsafe {
+            if split_at < len && split_at != 0 {
+                CircularIterMut {
+                    start: ptr.add(split_at),
+                    end: ptr.add(len),
+                    next_start: ptr,
+                    next_end: ptr.add(split_at),
+                    _marker: PhantomData
+                }
+            } else {
+                CircularIterMut {
+                    start: ptr,
+                    end: ptr.add(len),
+                    next_start: std::ptr::null_mut(),
+                    next_end: std::ptr::null_mut(),
+                    _marker: PhantomData
+                }
+            }
+        }
+    }
+}
 
 struct Block<T> {
     value: UnsafeCell<T>,
@@ -160,24 +277,33 @@ impl<T: Sized> Pool<T> {
 
     #[inline(never)]
     fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
-        let pages_len = self.pages.len();
+        // let pages_len = self.pages.len();
 
-        let mut last_found = self.last_found;
+        // let mut last_found = self.last_found;
 
-        if let Some(page) = self.pages.get_mut(last_found) {
-            if let Some(block) = unsafe { page.as_mut() }.acquire_free_block() {
-                // self.last_found += index;
-                return (*page, block);
-            };
-        };
+        // if let Some(page) = self.pages.get_mut(last_found) {
+        //     if let Some(block) = unsafe { page.as_mut() }.acquire_free_block() {
+        //         // self.last_found += index;
+        //         return (*page, block);
+        //     };
+        // };
 
-        last_found = last_found % pages_len;
+        // last_found = last_found % pages_len;
 
-        let (before, after) = self.pages
-                                  .as_mut_slice()
-                                  .split_at_mut(last_found);
+        // let (before, after) = self.pages
+        //                           .as_mut_slice()
+        //                           .split_at_mut(last_found);
 
-        for (index, page) in after.iter_mut().chain(before).enumerate() {
+        // for (index, page) in after.iter_mut().chain(before).enumerate() {
+        //     if let Some(block) = unsafe { page.as_mut() }.acquire_free_block() {
+        //         if index != 0 {
+        //             self.last_found += index;
+        //         }
+        //         return (*page, block);
+        //     };
+        // }
+
+        for (index, page) in self.pages.circular_iter_mut(self.last_found).enumerate() {
             if let Some(block) = unsafe { page.as_mut() }.acquire_free_block() {
                 if index != 0 {
                     self.last_found += index;

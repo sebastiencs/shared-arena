@@ -5,7 +5,7 @@ mod arena;
 pub mod page;
 mod arena_arc;
 mod arena_box;
-mod pool;
+pub mod pool;
 
 pub use {
     arena::Arena,

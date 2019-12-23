@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::slice;
 
 use super::page::{Block, Page, BLOCK_PER_PAGE};
+use super::circular_iter::CircularIterator;
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
 use crate::cache_line::CacheAligned;
@@ -29,20 +30,16 @@ impl<T: Sized> Arena<T> {
     }
 
     fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
-        let pages_len = self.pages.len();
+        let last_found = self.last_found;
 
-        let last_found = self.last_found % pages_len;
-
-        let (before, after) = self.pages.split_at(last_found);
-
-        for (index, page) in after.iter().chain(before).enumerate() {
+        for (index, page) in self.pages.circular_iter(last_found) {
             if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
-                self.last_found = last_found + index;
+                if index != last_found {
+                    self.last_found = index;
+                }
                 return (*page, block);
             };
         }
-
-        println!("ALLOCATING MORE {} {} {:?}", self.pages.len(), self.pages.len() * 32, self.stats());
 
         let new_page = self.alloc_new_page();
         let node = unsafe { new_page.as_ref() }.acquire_free_block().unwrap();

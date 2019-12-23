@@ -24,6 +24,7 @@ pub struct CircularIterMut<'a, T> {
 impl<'a, T> Iterator for CircularIter<'a, T> {
     type Item = (usize, &'a T);
 
+    #[inline]
     fn next(&mut self) -> Option<(usize, &'a T)> {
         if self.start != self.end {
             let current = self.start;
@@ -35,14 +36,12 @@ impl<'a, T> Iterator for CircularIter<'a, T> {
             }
         } else if self.next_start != self.next_end {
             let next = unsafe { &*self.next_start };
-            let index = self.index;
 
             self.start = unsafe { self.next_start.add(1) };
             self.end = self.next_end;
-            self.next_start = std::ptr::null();
-            self.next_end = std::ptr::null();
-            self.index += 1;
-            Some((index, next))
+            self.next_start = self.next_end;
+            self.index = 1;
+            Some((0, next))
         } else {
             None
         }
@@ -64,14 +63,12 @@ impl<'a, T> Iterator for CircularIterMut<'a, T> {
             }
         } else if self.next_start != self.next_end {
             let next = unsafe { &mut *self.next_start };
-            let index = self.index;
 
             self.start = unsafe { self.next_start.add(1) };
             self.end = self.next_end;
-            self.next_start = std::ptr::null_mut();
-            self.next_end = std::ptr::null_mut();
-            self.index += 1;
-            Some((index, next))
+            self.next_start = self.next_end;
+            self.index = 1;
+            Some((0, next))
         } else {
             None
         }

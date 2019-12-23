@@ -8,6 +8,7 @@ use crate::cache_line::CacheAligned;
 use super::page::{Page, BLOCK_PER_PAGE, Block};
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
+use super::circular_iter::CircularIterator;
 
 use crossbeam_epoch::{self as epoch, Owned, Shared, Guard};
 
@@ -63,15 +64,13 @@ impl<T: Sized> SharedArena<T> {
         loop {
             let last_found = self.last_found.load(Relaxed);
             let shared_pages = self.pages.load(Acquire, &guard);
-
             let pages = unsafe { shared_pages.as_ref().unwrap() };
-            let pages_len = pages.len();
 
-            let (before, after) = pages.split_at(last_found % pages_len);
-
-            for (index, page) in after.iter().chain(before).enumerate() {
+            for (index, page) in pages.circular_iter(last_found) {
                 if let Some(block) = unsafe { page.as_ref() }.acquire_free_block() {
-                    self.last_found.store(last_found + index, Relaxed);
+                    if index != last_found {
+                        self.last_found.store(index, Relaxed);
+                    }
                     return (*page, block);
                 };
             }
@@ -91,7 +90,7 @@ impl<T: Sized> SharedArena<T> {
 
             self.with_single_writer(shared_pages, &guard, || {
                 // Double the number of pages
-                let new_len = pages_len * 2;
+                let new_len = pages.len() * 2;
 
                 self.alloc_new_pages(shared_pages, pages, new_len, &guard);
             });

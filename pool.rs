@@ -166,6 +166,9 @@ impl<T> Page<T> {
     }
 }
 
+/// The difference with Arena/SharedArena is that the pool
+/// is not sendable to other threads, neither its PoolBox and
+/// PoolRc
 pub struct Pool<T: Sized> {
     last_found: usize,
     pages: Vec<NonNull<Page<T>>>,

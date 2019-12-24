@@ -78,10 +78,10 @@ impl<T> ArenaBox<T> {
         let counter_ref = &unsafe { block.as_ref() }.counter;
 
         // See ArenaArc<T>::new for more info.
-        // We should avoid this with ArenaBox, but still do it for sanity
-        // and be 100% sure to avoid any memory corruption.
+        // We should avoid touching the counter with ArenaBox, but still do it
+        // for sanity and be 100% sure to avoid any memory corruption.
         // The slowest operation here is dereferencing the block, though.
-        // So ArenaArc and ArenaBox have the same performance on creation.
+        // So ArenaArc and ArenaBox have the same cost on creation.
         // However dropping an ArenaBox is cheaper.
 
         let counter = counter_ref.load(Relaxed);

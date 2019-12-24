@@ -1,11 +1,11 @@
 
-use std::sync::Arc;
+
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
-use static_assertions::const_assert;
 
-use super::page::{IndexInPage, Page, Block};
+
+use super::page::{Page, Block};
 
 /// A pointer to `T` in the arena
 ///

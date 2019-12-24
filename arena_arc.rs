@@ -1,9 +1,9 @@
 
-use std::sync::Arc;
+
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
-use super::page::{IndexInPage, Page, Block};
+use super::page::{Page, Block};
 
 /// A reference-counting pointer to `T` in the arena
 ///

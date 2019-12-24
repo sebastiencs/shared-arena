@@ -1,7 +1,7 @@
 
-use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::*};
 use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
+
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
 

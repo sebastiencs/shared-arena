@@ -119,7 +119,7 @@ impl<T: Sized> SharedArena<T> {
         }
 
         // Fill the rest with new pages
-        new_pages.resize_with(new_len, Page::<T>::new);
+        //new_pages.resize_with(new_len, Page::<T>::new);
 
         // Replace self.pages by our new Vec
         if self.pages.compare_and_set(
@@ -184,7 +184,7 @@ impl<T: Sized> SharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
 
         let mut pages = Vec::with_capacity(npages);
-        pages.resize_with(npages, Page::<T>::new);
+        //pages.resize_with(npages, Page::<T>::new);
 
         SharedArena {
             last_found: CacheAligned::new(AtomicUsize::new(0)),
@@ -389,7 +389,8 @@ impl<T: Sized> SharedArena<T> {
     pub fn clear(&self) {
         let guard = epoch::pin();
 
-        let new_pages = vec![Page::<T>::new()];
+        let new_pages = vec![];
+        //let new_pages = vec![Page::<T>::new()];
 
         let old = self.pages.swap(Owned::new(new_pages), AcqRel, &guard);
 

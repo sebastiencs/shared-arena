@@ -4,7 +4,7 @@ mod arena;
 mod page;
 mod arena_arc;
 mod arena_box;
-mod pool;
+// mod pool;
 mod circular_iter;
 
 pub use {
@@ -12,5 +12,5 @@ pub use {
     shared_arena::SharedArena,
     arena_arc::ArenaArc,
     arena_box::ArenaBox,
-    pool::{Pool, PoolBox, PoolRc},
+    // pool::{Pool, PoolBox, PoolRc},
 };

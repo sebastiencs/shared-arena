@@ -141,6 +141,28 @@ pub(super) fn drop_block_in_arena<T>(page: &mut Page<T>, block: &Block<T>) {
         // We were the last block/arena referencing this page
         // Deallocate it
         page.deallocate();
+        return;
+    }
+
+    if page.in_free_list.load(Acquire) == false {
+        if page.in_free_list.compare_exchange(
+            false, true, Release, Relaxed
+        ).is_err() {
+            return;
+        }
+
+        let free_ref = unsafe { &*page.arena_free_list.as_ptr() };
+
+        loop {
+            let current = free_ref.load(Relaxed);
+            page.next_free.store(current, Relaxed);
+
+            if free_ref.compare_exchange(
+                current, page, Release, Relaxed
+            ).is_ok() {
+                break;
+            }
+        }
     }
 }
 

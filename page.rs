@@ -1,5 +1,5 @@
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicPtr, AtomicUsize, Ordering::*};
 use std::cell::UnsafeCell;
 
 use std::ptr::NonNull;
@@ -40,6 +40,9 @@ pub struct Block<T> {
 }
 
 pub struct Page<T> {
+    pub arena_free_list: NonNull<AtomicPtr<Page<T>>>,
+    pub next_free: AtomicPtr<Page<T>>,
+    pub in_free_list: AtomicBool,
     /// Bitfield representing free and non-free blocks.
     /// - 1 = free
     /// - 0 = non-free
@@ -75,13 +78,18 @@ impl<T> Page<T> {
         }
     }
 
-    pub fn new() -> NonNull<Page<T>> {
+    //arena_free_list: NonNull<AtomicPtr<Page<T>>>,
+
+    pub fn new(arena_free_list: &AtomicPtr<Page<T>>) -> NonNull<Page<T>> {
         let mut page_ptr = Self::allocate();
 
         let page = unsafe { page_ptr.as_mut() };
 
         // We fill the bitfield with ones
         page.bitfield.store(!0, Relaxed);
+        page.next_free = AtomicPtr::new(std::ptr::null_mut());
+        page.in_free_list = AtomicBool::new(true);
+        page.arena_free_list = NonNull::from(arena_free_list);
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {

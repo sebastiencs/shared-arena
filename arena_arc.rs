@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
-use super::page::{Page, Block};
+use super::page::{Page, Block, MASK_ARENA_BIT};
 
 /// A reference-counting pointer to `T` in the arena
 ///
@@ -137,28 +137,36 @@ pub(super) fn drop_block_in_arena<T>(page: &mut Page<T>, block: &Block<T>) {
     }
 
     // The bit dedicated to the Page is inversed (1 for used, 0 for free)
-    if !new_bitfield == 1 << 63 {
+    if !new_bitfield == MASK_ARENA_BIT {
         // We were the last block/arena referencing this page
         // Deallocate it
         page.deallocate();
         return;
     }
 
-    if page.in_free_list.load(Acquire) == false {
+    if !page.in_free_list.load(Acquire) {
         if page.in_free_list.compare_exchange(
             false, true, Release, Relaxed
         ).is_err() {
             return;
         }
 
-        let free_ref = unsafe { &*page.arena_free_list.as_ptr() };
+        if new_bitfield & MASK_ARENA_BIT == 0 {
+            // The arena has been dropped
+            return;
+        }
+
+        //let free_ref = unsafe { &*page.arena_free_list.as_ptr() };
+        // let free_ref = &page.arena_free_list;
+
+        let page_ptr = page as *mut Page<T>;
 
         loop {
-            let current = free_ref.load(Relaxed);
+            let current = page.arena_free_list.load(Relaxed);
             page.next_free.store(current, Relaxed);
 
-            if free_ref.compare_exchange(
-                current, page, Release, Relaxed
+            if page.arena_free_list.compare_exchange(
+                current, page_ptr, Release, Relaxed
             ).is_ok() {
                 break;
             }

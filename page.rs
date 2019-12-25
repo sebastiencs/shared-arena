@@ -1,6 +1,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicPtr, AtomicUsize, Ordering::*};
 use std::cell::UnsafeCell;
+use std::sync::Arc;
 
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
@@ -20,8 +21,9 @@ pub type IndexInPage = usize;
 
 pub const BITFIELD_WIDTH: usize = 64;
 pub const BLOCK_PER_PAGE: usize = BITFIELD_WIDTH - 1;
+pub const MASK_ARENA_BIT: usize = 1 << (BITFIELD_WIDTH - 1);
 
-type Bitfield = AtomicU64;
+type Bitfield = AtomicUsize;
 
 const_assert!(std::mem::size_of::<Bitfield>() == BITFIELD_WIDTH / 8);
 
@@ -40,9 +42,6 @@ pub struct Block<T> {
 }
 
 pub struct Page<T> {
-    pub arena_free_list: NonNull<AtomicPtr<Page<T>>>,
-    pub next_free: AtomicPtr<Page<T>>,
-    pub in_free_list: AtomicBool,
     /// Bitfield representing free and non-free blocks.
     /// - 1 = free
     /// - 0 = non-free
@@ -60,6 +59,10 @@ pub struct Page<T> {
     /// Ideally, each block would be aligned on the cache line size
     /// but this would make the Page too big
     pub blocks: [Block<T>; BLOCK_PER_PAGE],
+    pub arena_free_list: Arc<AtomicPtr<Page<T>>>,
+    pub next_free: AtomicPtr<Page<T>>,
+    pub next: AtomicPtr<Page<T>>,
+    pub in_free_list: AtomicBool,
 }
 
 impl<T> Page<T> {
@@ -78,18 +81,28 @@ impl<T> Page<T> {
         }
     }
 
-    //arena_free_list: NonNull<AtomicPtr<Page<T>>>,
-
-    pub fn new(arena_free_list: &AtomicPtr<Page<T>>) -> NonNull<Page<T>> {
+    pub fn new(
+        arena_free_list: &Arc<AtomicPtr<Page<T>>>,
+        next: *mut Page<T>
+    ) -> NonNull<Page<T>>
+    {
         let mut page_ptr = Self::allocate();
 
         let page = unsafe { page_ptr.as_mut() };
 
+        // Initialize the page
+        // Don't invoke any Drop here, the allocated page is uninitialized
+
         // We fill the bitfield with ones
         page.bitfield.store(!0, Relaxed);
-        page.next_free = AtomicPtr::new(std::ptr::null_mut());
+        page.next_free = AtomicPtr::new(next);
+        page.next = AtomicPtr::new(next);
         page.in_free_list = AtomicBool::new(true);
-        page.arena_free_list = NonNull::from(arena_free_list);
+
+        let free_ptr = &mut page.arena_free_list as *mut Arc<AtomicPtr<Page<T>>>;
+        unsafe {
+            free_ptr.write(Arc::clone(arena_free_list));
+        }
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
@@ -119,7 +132,7 @@ impl<T> Page<T> {
         // it as non-free
         let mut new_bitfield = bitfield & !(1 << index_free);
 
-        while let Err(x) = self.bitfield.compare_exchange(
+        while let Err(x) = self.bitfield.compare_exchange_weak(
             bitfield, new_bitfield, SeqCst, Relaxed
         ) {
             bitfield = x;
@@ -140,18 +153,18 @@ impl<T> Drop for Page<T> {
     fn drop(&mut self) {
         let mut bitfield = self.bitfield.load(Relaxed);
 
-        // We clear the bit dedicated to the page to mark it as free
-        let mut new_bitfield = bitfield & !(1 << (BITFIELD_WIDTH - 1));
+        // We clear the bit dedicated to the arena
+        let mut new_bitfield = bitfield & !MASK_ARENA_BIT;
 
         while let Err(x) = self.bitfield.compare_exchange_weak(
             bitfield, new_bitfield, SeqCst, Relaxed
         ) {
             bitfield = x;
-            new_bitfield = bitfield | (1 << (BITFIELD_WIDTH - 1));
+            new_bitfield = bitfield & !MASK_ARENA_BIT
         }
 
-        // The bit dedicated to the Page is inversed (1 for used, 0 for free)
-        if !new_bitfield == 1 << 63 {
+        // The bit dedicated to the arena is inversed (1 for used, 0 for free)
+        if !new_bitfield == MASK_ARENA_BIT {
             // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
             self.deallocate();
         }

@@ -73,7 +73,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaBox<T> {
 }
 
 impl<T> ArenaBox<T> {
-    #[inline(never)]
+    // #[inline(never)]
     pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaBox<T> {
         let counter_ref = &unsafe { block.as_ref() }.counter;
 

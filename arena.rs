@@ -4,16 +4,15 @@ use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering::*;
 use std::sync::atomic::AtomicPtr;
+use std::sync::Arc;
 use std::pin::Pin;
 
 use super::page::{Block, Page, BLOCK_PER_PAGE};
-use super::circular_iter::CircularIterator;
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
 
-
 pub struct Arena<T: Sized> {
-    free: Pin<Box<AtomicPtr<Page<T>>>>,
+    free: Arc<AtomicPtr<Page<T>>>,
     page_list: AtomicPtr<Page<T>>,
     npages: usize,
 }
@@ -23,16 +22,15 @@ unsafe impl<T: Sized> Send for Arena<T> {}
 impl<T: Sized> Arena<T> {
     fn make_new_page(
         npages: usize,
-        arena_free_list: &AtomicPtr<Page<T>>
+        arena_free_list: &Arc<AtomicPtr<Page<T>>>
     ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
     {
-        let mut last = Page::<T>::new(arena_free_list);
+        let last = Page::<T>::new(arena_free_list, std::ptr::null_mut());
         let mut previous = last;
 
         for _ in 0..npages - 1 {
-            let mut page = Page::<T>::new(arena_free_list);
-            let page_ref = unsafe { page.as_mut() };
-            page_ref.next_free = AtomicPtr::new(unsafe { previous.as_mut() });
+            let previous_ptr = unsafe { previous.as_mut() };
+            let page = Page::<T>::new(arena_free_list, previous_ptr);
             previous = page;
         }
 
@@ -61,27 +59,32 @@ impl<T: Sized> Arena<T> {
             }
         }
 
+        last_ref.next = AtomicPtr::new(self.page_list.load(Relaxed));
+        self.page_list.store(first_ref, Relaxed);
+
         self.npages += to_allocate;
 
         first
     }
 
+    #[inline(never)]
     fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
-        loop {
-            let page = match unsafe { self.free.load(Acquire).as_ref() } {
-                Some(page) => page,
-                _ => break
-            };
+        while let Some(page) = unsafe { self.free.load(Acquire).as_mut() } {
 
             if let Some(block) = page.acquire_free_block() {
                 return (NonNull::from(page), block);
             }
 
-            page.in_free_list.store(false, Release);
-            self.free.store(page.next_free.load(Acquire), Release);
+            let next = page.next_free.load(Relaxed);
+
+            // self.free might have changed here (with an ArenaBox/Arc drop)
+            // We remove the page from the free list only when it didn't change
+            if self.free.compare_exchange(page, next, AcqRel, Relaxed).is_ok() {
+                page.in_free_list.store(false, Release);
+            }
         }
 
-        // println!("ALLOCATE MORE", );
+        println!("ALLOCATE MORE", );
 
         let new_page = self.alloc_new_page();
         let block = unsafe { new_page.as_ref() }.acquire_free_block().unwrap();
@@ -91,7 +94,7 @@ impl<T: Sized> Arena<T> {
 
     pub fn with_capacity(cap: usize) -> Arena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
-        let free = Box::pin(AtomicPtr::new(std::ptr::null_mut()));
+        let free = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
 
         let (mut first, _) = Self::make_new_page(npages, &free);
         let first_ref = unsafe { first.as_mut() };
@@ -146,7 +149,18 @@ impl<T: Sized> Arena<T> {
     //     self.pages.len()
     // }
 
-    pub fn stats(&self) -> usize {
+    pub fn stats(&self) -> (usize, usize) {
+        let mut next = self.free.load(Relaxed);
+
+        let mut free = 0;
+
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            let next_next = next_ref.next_free.load(Relaxed);
+            free += next_ref.bitfield.load(Relaxed).count_ones() as usize - 1;
+            next = next_next;
+        }
+
+        let used = (self.npages * BLOCK_PER_PAGE) - free;
         // let used = self
         //     .pages
         //     .iter()
@@ -155,15 +169,21 @@ impl<T: Sized> Arena<T> {
 
         // // We don't count bits dedicated to the pages
         // used - self.pages.len()
-        0
+        (used, free)
     }
 }
 
 impl<T> Drop for Arena<T> {
     fn drop(&mut self) {
-        // for ptr in self.pages.iter_mut() {
-        //     unsafe { std::ptr::drop_in_place(ptr.as_mut()) };
-        // }
+        let mut next = self.page_list.load(Relaxed);
+
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            let next_next = next_ref.next.load(Relaxed);
+            unsafe {
+                std::ptr::drop_in_place(next);
+            }
+            next = next_next;
+        }
     }
 }
 

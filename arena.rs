@@ -5,7 +5,6 @@ use std::ptr::NonNull;
 use std::sync::atomic::Ordering::*;
 use std::sync::atomic::AtomicPtr;
 use std::sync::Arc;
-use std::pin::Pin;
 
 use super::page::{Block, Page, BLOCK_PER_PAGE};
 use super::arena_arc::ArenaArc;
@@ -142,6 +141,46 @@ impl<T: Sized> Arena<T> {
             let ptr = block.as_ref().value.get();
             ptr.write(value);
             ArenaArc::new(page, block)
+        }
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+
+        let mut current: &AtomicPtr<Page<T>> = &*self.free;
+
+        let mut to_drop = vec![];
+
+        // Loop on the free list
+        while let Some(current_value) = unsafe { current.load(Relaxed).as_mut() } {
+            let next = &current_value.next_free;
+            let next_value = next.load(Relaxed);
+
+            if !current_value.bitfield.load(Relaxed) == 0 {
+                current.store(next_value, Relaxed);
+                to_drop.push(current_value as *const _ as *mut Page<T>);
+            } else {
+                current = next;
+            }
+        }
+
+        let mut current: &AtomicPtr<Page<T>> = &self.page_list;
+
+        // Loop on the full list
+        while let Some(current_value) = unsafe { current.load(Relaxed).as_mut() } {
+            let next = &current_value.next;
+            let next_value = next.load(Relaxed);
+
+            if to_drop.contains(&(current_value as *const _ as *mut Page<T>)) {
+                current.store(next_value, Relaxed);
+            } else {
+                current = next;
+            }
+        }
+
+        self.npages -= to_drop.len();
+
+        for page in to_drop.iter().rev() {
+            unsafe { std::ptr::drop_in_place(*page) }
         }
     }
 

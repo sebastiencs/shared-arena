@@ -1,5 +1,6 @@
 
 mod shared_arena;
+mod shared_page;
 mod arena;
 mod page;
 mod arena_arc;

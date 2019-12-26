@@ -1,7 +1,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicPtr, AtomicUsize, Ordering::*};
 use std::cell::UnsafeCell;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
@@ -59,7 +59,7 @@ pub struct Page<T> {
     /// Ideally, each block would be aligned on the cache line size
     /// but this would make the Page too big
     pub blocks: [Block<T>; BLOCK_PER_PAGE],
-    pub arena_free_list: Arc<AtomicPtr<Page<T>>>,
+    pub arena_free_list: Weak<AtomicPtr<Page<T>>>,
     pub next_free: AtomicPtr<Page<T>>,
     pub next: AtomicPtr<Page<T>>,
     pub in_free_list: AtomicBool,
@@ -99,9 +99,9 @@ impl<T> Page<T> {
         page.next = AtomicPtr::new(next);
         page.in_free_list = AtomicBool::new(true);
 
-        let free_ptr = &mut page.arena_free_list as *mut Arc<AtomicPtr<Page<T>>>;
+        let free_ptr = &mut page.arena_free_list as *mut Weak<AtomicPtr<Page<T>>>;
         unsafe {
-            free_ptr.write(Arc::clone(arena_free_list));
+            free_ptr.write(Arc::downgrade(arena_free_list));
         }
 
         // initialize the blocks

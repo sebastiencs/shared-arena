@@ -151,21 +151,18 @@ pub(super) fn drop_block_in_arena<T>(page: &mut Page<T>, block: &Block<T>) {
             return;
         }
 
-        if new_bitfield & MASK_ARENA_BIT == 0 {
-            // The arena has been dropped
-            return;
-        }
-
-        //let free_ref = unsafe { &*page.arena_free_list.as_ptr() };
-        // let free_ref = &page.arena_free_list;
-
         let page_ptr = page as *mut Page<T>;
 
+        let arena_free_list = match page.arena_free_list.upgrade() {
+            Some(ptr) => ptr,
+            _ => return // The arena has been dropped
+        };
+
         loop {
-            let current = page.arena_free_list.load(Relaxed);
+            let current = arena_free_list.load(Relaxed);
             page.next_free.store(current, Relaxed);
 
-            if page.arena_free_list.compare_exchange(
+            if arena_free_list.compare_exchange_weak(
                 current, page_ptr, Release, Relaxed
             ).is_ok() {
                 break;

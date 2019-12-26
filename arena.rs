@@ -210,6 +210,45 @@ impl<T: Sized> Arena<T> {
         // used - self.pages.len()
         (used, free)
     }
+
+    pub(crate) fn size_lists(&self) -> (usize, usize) {
+        let mut next = self.page_list.load(Relaxed);
+        let mut size = 0;
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            next = next_ref.next.load(Relaxed);
+            size += 1;
+        }
+
+        let mut next = self.free.load(Relaxed);
+        let mut free = 0;
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            next = next_ref.next_free.load(Relaxed);
+            free += 1;
+        }
+
+        (size, free)
+    }
+
+    pub(crate) fn display_list(&self) {
+        let mut full = vec![];
+
+        let mut next = self.page_list.load(Relaxed);
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            full.push(next);
+            next = next_ref.next.load(Relaxed);
+        }
+
+        let mut list_free = vec![];
+
+        let mut next = self.free.load(Relaxed);
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            list_free.push(next);
+            next = next_ref.next_free.load(Relaxed);
+        }
+
+        println!("FULL {} {:#?}", full.len(), full);
+        println!("FREE {} {:#?}", list_free.len(), list_free);
+    }
 }
 
 impl<T> Drop for Arena<T> {
@@ -238,5 +277,84 @@ impl<T> std::fmt::Debug for Arena<T> {
         f.debug_struct("MemPool")
          // .field("npages", &len)
          .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn arena_shrink() {
+        let mut arena = super::Arena::<usize>::with_capacity(1000);
+        assert_eq!(arena.stats(), (0, 1008));
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (0, 0));
+    }
+
+    #[test]
+    fn arena_shrink2() {
+        let mut arena = super::Arena::<usize>::with_capacity(1000);
+
+        let _a = arena.alloc(1);
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (1, 62));
+
+        let _a = arena.alloc(1);
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (2, 61));
+
+        let mut values = Vec::with_capacity(64);
+        for _ in 0..64 {
+            values.push(arena.alloc(1));
+        }
+
+        assert_eq!(arena.stats(), (66, 60));
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (66, 60));
+
+        std::mem::drop(values);
+
+        assert_eq!(arena.stats(), (2, 124));
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (2, 61));
+    }
+
+    #[test]
+    fn arena_size() {
+        let mut arena = super::Arena::<usize>::with_capacity(1000);
+
+        assert_eq!(arena.size_lists(), (16, 16));
+        let a = arena.alloc(1);
+        assert_eq!(arena.size_lists(), (16, 16));
+
+        let mut values = Vec::with_capacity(539);
+        for _ in 0..539 {
+            values.push(arena.alloc(1));
+        }
+        assert_eq!(arena.size_lists(), (16, 8));
+
+        arena.shrink_to_fit();
+
+        assert_eq!(arena.size_lists(), (9, 1));
+
+        values.truncate(503);
+        arena.shrink_to_fit();
+
+        assert_eq!(arena.size_lists(), (8, 0));
+
+        std::mem::drop(a);
+        for _ in 0..62 {
+            values.remove(0);
+        }
+
+        assert_eq!(arena.size_lists(), (8, 1));
+
+        arena.shrink_to_fit();
+        assert_eq!(arena.size_lists(), (7, 0));
+
+        values.clear();
+        assert_eq!(arena.size_lists(), (7, 7));
+
+        arena.shrink_to_fit();
+        assert_eq!(arena.size_lists(), (0, 0));
     }
 }

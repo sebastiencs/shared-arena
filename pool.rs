@@ -1,10 +1,13 @@
 
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
+use std::rc::{Rc, Weak};
 
-use super::circular_iter::CircularIterator;
+// use super::circular_iter::CircularIterator;
+
+type Pointer<T> = Cell<*mut T>;
 
 struct Block<T> {
     value: UnsafeCell<T>,
@@ -12,11 +15,15 @@ struct Block<T> {
     index_in_page: usize,
 }
 
-use super::page::BLOCK_PER_PAGE;
+use super::page::{BLOCK_PER_PAGE, MASK_ARENA_BIT};
 
 struct Page<T> {
     bitfield: usize,
-    blocks: [Block<T>; BLOCK_PER_PAGE]
+    blocks: [Block<T>; BLOCK_PER_PAGE],
+    pub arena_free_list: Weak<Pointer<Page<T>>>,
+    pub next_free: Pointer<Page<T>>,
+    pub next: Pointer<Page<T>>,
+    pub in_free_list: bool,
 }
 
 pub struct PoolRc<T> {
@@ -131,13 +138,28 @@ impl<T> Page<T> {
         }
     }
 
-    pub fn new() -> NonNull<Page<T>> {
+    fn new(
+        arena_free_list: Weak<Pointer<Page<T>>>,
+        next: *mut Page<T>
+    ) -> NonNull<Page<T>>
+    {
         let mut page_ptr = Self::allocate();
 
-        let page = unsafe { page_ptr.as_mut() };
+        let mut page = unsafe { page_ptr.as_mut() };
+
+        // Initialize the page
+        // Don't invoke any Drop here, the allocated page is uninitialized
 
         // We fill the bitfield with ones
         page.bitfield = !0;
+        page.next_free.set(next);
+        page.next.set(next);
+        page.in_free_list = true;
+
+        let free_ptr = &mut page.arena_free_list as *mut Weak<Pointer<Page<T>>>;
+        unsafe {
+            free_ptr.write(arena_free_list);
+        }
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
@@ -146,6 +168,28 @@ impl<T> Page<T> {
         }
 
         page_ptr
+    }
+
+    /// Make a new list of Page
+    ///
+    /// Returns the first and last Page in the list
+    pub fn make_list(
+        npages: usize,
+        arena_free_list: &Rc<Pointer<Page<T>>>
+    ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
+    {
+        let arena_free_list = Rc::downgrade(arena_free_list);
+
+        let last = Page::<T>::new(arena_free_list.clone(), std::ptr::null_mut());
+        let mut previous = last;
+
+        for _ in 0..npages - 1 {
+            let previous_ptr = unsafe { previous.as_mut() };
+            let page = Page::<T>::new(arena_free_list.clone(), previous_ptr);
+            previous = page;
+        }
+
+        (previous, last)
     }
 
     /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
@@ -166,12 +210,26 @@ impl<T> Page<T> {
     }
 }
 
-/// The difference with Arena/SharedArena is that the pool
+impl<T> Drop for Page<T> {
+    fn drop(&mut self) {
+        self.bitfield &= !MASK_ARENA_BIT;
+
+        // The bit dedicated to the arena is inversed (1 for used, 0 for free)
+        if !self.bitfield == MASK_ARENA_BIT {
+            // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
+            self.deallocate();
+        }
+    }
+}
+
+/// The difference with SharedArena is that the pool
 /// is not sendable to other threads, neither its PoolBox and
 /// PoolRc
 pub struct Pool<T: Sized> {
-    last_found: usize,
-    pages: Vec<NonNull<Page<T>>>,
+    free: Rc<Pointer<Page<T>>>,
+    page_list: Pointer<Page<T>>,
+    npages: usize,
+    // pages: Vec<NonNull<Page<T>>>,
     _marker: PhantomData<*mut ()>
 }
 
@@ -182,38 +240,70 @@ impl<T: Sized> Pool<T> {
 
     pub fn with_capacity(cap: usize) -> Pool<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
+        let mut free = Rc::new(Cell::new(std::ptr::null_mut()));
 
-        let mut pages = Vec::with_capacity(npages);
-        pages.resize_with(npages, Page::<T>::new);
+        let (mut first, _) = Page::make_list(npages, &free);
+        let first_ref = unsafe { first.as_mut() };
 
-        Pool { last_found: 0, pages, _marker: PhantomData }
+        free.set(first_ref);
+
+        Pool {
+            npages,
+            free,
+            page_list: Cell::new(first_ref),
+            _marker: PhantomData
+        }
     }
 
+    // pub fn with_capacity(cap: usize) -> Pool<T> {
+    //     let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
+
+    //     let mut pages = Vec::with_capacity(npages);
+    //     pages.resize_with(npages, Page::<T>::new);
+
+    //     Pool { last_found: 0, pages, _marker: PhantomData }
+    // }
+
     fn alloc_new_page(&mut self) -> NonNull<Page<T>> {
-        let len = self.pages.len();
-        let new_len = len + len.min(900_000);
+        let len = self.npages;
 
-        self.pages.resize_with(new_len, Page::<T>::new);
+        let to_allocate = len.min(900_000);
 
-        self.pages[len]
+        let (mut first, mut last) = Page::make_list(to_allocate, &self.free);
+
+        let (first_ref, last_ref) = unsafe {
+            (first.as_mut(), last.as_mut())
+        };
+
+        last_ref.next_free.set(self.free.get());
+        last_ref.next.set(self.page_list.get());
+
+        self.free.set(first_ref);
+        self.page_list.set(first_ref);
+
+        self.npages += to_allocate;
+
+        first
     }
 
     fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
-        let last_found = self.last_found;
 
-        for (index, page) in self.pages.circular_iter_mut(last_found) {
-            if let Some(block) = unsafe { page.as_mut() }.acquire_free_block() {
-                if index != last_found {
-                    self.last_found = index;
+        loop {
+            while let Some(page) = unsafe { self.free.get().as_mut() } {
+
+                if let Some(block) = page.acquire_free_block() {
+                    return (NonNull::from(page), block);
                 }
-                return (*page, block);
-            };
+
+                let next = page.next_free.get();
+
+                self.free.set(next);
+                page.in_free_list = false;
+            }
+
+            println!("POOL ALLOCATE MORE", );
+            self.alloc_new_page();
         }
-
-        let mut new_page = self.alloc_new_page();
-        let node = unsafe { new_page.as_mut() }.acquire_free_block().unwrap();
-
-        (new_page, node)
     }
 
     pub fn alloc(&mut self, value: T) -> PoolBox<T> {
@@ -236,5 +326,18 @@ impl<T: Sized> Pool<T> {
         }
 
         PoolRc::new(page, block)
+    }
+}
+
+impl<T> Drop for Pool<T> {
+    fn drop(&mut self) {
+        let mut next = self.page_list.get();
+
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            unsafe {
+                std::ptr::drop_in_place(next);
+            }
+            next = next_ref.next.get();
+        }
     }
 }

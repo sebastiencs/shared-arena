@@ -110,6 +110,21 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
+    /// Constructs a new SharedArena capable of holding at least `cap` elements
+    ///
+    /// Because the arena allocate by page of 63 elements, it might be able to
+    /// hold more elements than `cap`.
+    ///
+    /// The Arena will reallocate itself if there is not enough space
+    /// when allocating (with alloc* functions)
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    ///
+    /// let arena = SharedArena::with_capacity(2048);
+    /// ```
     pub fn with_capacity(cap: usize) -> SharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
         let free = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
@@ -128,10 +143,35 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
+    /// Constructs a new SharedArena capable of holding exactly 63 elements
+    ///
+    /// The Arena will reallocate itself if there is not enough space
+    /// when allocating (with alloc* functions)
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    ///
+    /// let arena = SharedArena::new();
+    /// ```
     pub fn new() -> SharedArena<T> {
         SharedArena::with_capacity(BLOCK_PER_PAGE)
     }
 
+    /// Writes a value in the arena, and returns an [`ArenaBox`]
+    /// pointing to that value.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    ///
+    /// let arena = SharedArena::new();
+    /// let my_num: ArenaBox<u8> = arena.alloc(0xFF);
+    /// ```
+    ///
+    /// [`ArenaBox`]: ./struct.ArenaBox.html
     pub fn alloc(&self, value: T) -> ArenaBox<T> {
         let (page, block) = self.find_place();
 
@@ -143,6 +183,49 @@ impl<T: Sized> SharedArena<T> {
         ArenaBox::new(page, block)
     }
 
+    /// Finds an empty space in the arena and calls the function `initializer`
+    /// with its argument pointing to that space.
+    /// It returns an [`ArenaBox`] pointing to the newly initialized value.
+    ///
+    /// The difference with [`alloc`] is that it has the benefit of
+    /// avoiding intermediate copies of the value.
+    ///
+    /// ## Safety
+    ///
+    /// It is the caller responsability to initialize properly the value.
+    /// When the [`ArenaBox`] is dropped, the value is also
+    /// dropped. If the value is not initialized correctly, it will
+    /// drop an unitialized value, which is undefined behavior.
+    ///
+    /// This function is not marked as `unsafe` because the caller will have
+    /// to deal itself with [`MaybeUninit`].
+    ///
+    /// A bad usage of this function is `unsafe` and can lead to undefined
+    /// behavior !
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    /// use std::ptr;
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct MyStruct { .. }
+    ///
+    /// let ref_struct: &MyStruct = ..;
+    ///
+    /// let arena = SharedArena::new();
+    /// let my_struct: ArenaBox<MyStruct> = arena.alloc_in_place(|place| {
+    ///     unsafe {
+    ///         // The type must be Copy to use ptr::copy
+    ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
+    ///     }
+    /// });
+    /// ```
+    ///
+    /// [`ArenaBox`]: ./struct.ArenaBox.html
+    /// [`alloc`]: struct.SharedArena.html#method.alloc
+    /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_in_place<F>(&self, initializer: F) -> ArenaBox<T>
     where
         F: Fn(&mut MaybeUninit<T>)
@@ -157,6 +240,19 @@ impl<T: Sized> SharedArena<T> {
         ArenaBox::new(page, block)
     }
 
+    /// Writes a value in the arena, and returns an [`ArenaArc`]
+    /// pointing to that value.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    ///
+    /// let arena = SharedArena::new();
+    /// let my_num: ArenaArc<u8> = arena.alloc_arc(0xFF);
+    /// ```
+    ///
+    /// [`ArenaArc`]: ./struct.ArenaArc.html
     pub fn alloc_arc(&self, value: T) -> ArenaArc<T> {
         let (page, block) = self.find_place();
 
@@ -168,6 +264,49 @@ impl<T: Sized> SharedArena<T> {
         ArenaArc::new(page, block)
     }
 
+    /// Finds an empty space in the arena and calls the function `initializer`
+    /// with its argument pointing to that space.
+    /// It returns an [`ArenaArc`] pointing to the newly initialized value.
+    ///
+    /// The difference with [`alloc_arc`] is that it has the benefit of
+    /// avoiding intermediate copies of the value.
+    ///
+    /// ## Safety
+    ///
+    /// It is the caller responsability to initialize properly the value.
+    /// When all [`ArenaArc`] pointing that value are dropped, the value
+    /// is also dropped. If the value is not initialized correctly, it will
+    /// drop an unitialized value, which is undefined behavior.
+    ///
+    /// This function is not marked as `unsafe` because the caller will have
+    /// to deal itself with [`MaybeUninit`].
+    ///
+    /// A bad usage of this function is `unsafe` and can lead to undefined
+    /// behavior !
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    /// use std::ptr;
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct MyStruct { .. }
+    ///
+    /// let ref_struct: &MyStruct = ..;
+    ///
+    /// let arena = SharedArena::new();
+    /// let my_struct: ArenaArc<MyStruct> = arena.alloc_in_place_arc(|place| {
+    ///     unsafe {
+    ///         // The type must be Copy to use ptr::copy
+    ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
+    ///     }
+    /// });
+    /// ```
+    ///
+    /// [`ArenaArc`]: ./struct.ArenaArc.html
+    /// [`alloc_arc`]: #method.alloc_arc
+    /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_in_place_arc<F>(&self, initializer: F) -> ArenaArc<T>
     where
         F: Fn(&mut MaybeUninit<T>)
@@ -182,6 +321,34 @@ impl<T: Sized> SharedArena<T> {
         ArenaArc::new(page, block)
     }
 
+    /// Shrinks the capacity of the arena as much as possible.
+    ///
+    /// It will drop all pages that are unused (no ArenaBox/ArenaArc point to
+    /// it)
+    /// If there is still one or more references to a page, the page won't
+    /// be dropped.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    ///
+    /// let arena = SharedArena::with_capacity(2048);
+    /// let values = Vec::new();
+    ///
+    /// let (used, free) = arena.stats();
+    /// assert!(used == 0, free == 2048)
+    ///
+    /// for _ in 0..80 {
+    ///     values.push(arena.alloc(0xFF));
+    /// }
+    ///
+    /// arena.shrink_to_fit();
+    ///
+    /// let (used, free) = arena.stats();
+    /// assert!(used == 80, free == 46)
+    ///
+    /// ```
     pub fn shrink_to_fit(&self) {
         if self.shrinking.compare_exchange(
             false, true, SeqCst, Relaxed
@@ -215,7 +382,7 @@ impl<T: Sized> SharedArena<T> {
 
         // We check that the pages still have 0 reference to them
         // because it's possible that another thread have updated the bitfield
-        // between the moment when we read the bitfield and the moment we removed
+        // between the moment we read the bitfield and the moment we removed
         // the page from the free list.
         // If the page and its bitfield have been updated, we put it again in
         // the free list
@@ -270,6 +437,18 @@ impl<T: Sized> SharedArena<T> {
         self.shrinking.store(false, Relaxed);
     }
 
+    /// Returns a tuple of non-free and free spaces in the arena
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::SharedArena;
+    ///
+    /// let arena = SharedArena::new();
+    /// arena.alloc(1);
+    /// let (used, free) = arena.stats();
+    /// assert!(used == 1 && free == 62);
+    /// ```
     pub fn stats(&self) -> (usize, usize) {
         let mut next = self.free.load(Relaxed);
 

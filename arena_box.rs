@@ -73,7 +73,6 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaBox<T> {
 }
 
 impl<T> ArenaBox<T> {
-    // #[inline(never)]
     pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaBox<T> {
         let counter_ref = &unsafe { block.as_ref() }.counter;
 
@@ -124,6 +123,6 @@ impl<T> Drop for ArenaBox<T> {
 
         counter_ref.store(0, Relaxed);
 
-        super::arena_arc::drop_block_in_arena(page, block);
+        page.drop_block(block);
     }
 }

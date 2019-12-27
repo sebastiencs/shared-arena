@@ -180,6 +180,8 @@ impl<T: Sized> Arena<T> {
         self.npages -= to_drop.len();
 
         for page in to_drop.iter().rev() {
+            // The page is deallocated only when there is no more reference to it
+            // See Page::drop
             unsafe { std::ptr::drop_in_place(*page) }
         }
     }

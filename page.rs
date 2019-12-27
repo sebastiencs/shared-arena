@@ -77,7 +77,7 @@ impl<T> Page<T> {
         }
     }
 
-    pub fn new(
+    fn new(
         arena_free_list: &Arc<AtomicPtr<Page<T>>>,
         next: *mut Page<T>
     ) -> NonNull<Page<T>>
@@ -109,6 +109,25 @@ impl<T> Page<T> {
         page_ptr
     }
 
+    /// Make a new list of Page
+    ///
+    /// Returns the first and last Page in the list
+    pub fn make_list(
+        npages: usize,
+        arena_free_list: &Arc<AtomicPtr<Page<T>>>
+    ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
+    {
+        let last = Page::<T>::new(arena_free_list, std::ptr::null_mut());
+        let mut previous = last;
+
+        for _ in 0..npages - 1 {
+            let previous_ptr = unsafe { previous.as_mut() };
+            let page = Page::<T>::new(arena_free_list, previous_ptr);
+            previous = page;
+        }
+
+        (previous, last)
+    }
 
     /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
     ///
@@ -142,6 +161,63 @@ impl<T> Page<T> {
         }
 
         self.blocks.get(index_free).map(NonNull::from)
+    }
+
+    pub(super) fn drop_block(&mut self, block: &Block<T>) {
+        unsafe {
+            // Drop the inner value
+            std::ptr::drop_in_place(block.value.get());
+        }
+
+        let index_in_page = block.index_in_page;
+
+        let bitfield_ref = &self.bitfield;
+
+        let mut bitfield = bitfield_ref.load(Relaxed);
+
+        // We set our bit to mark the block as free
+        let mut new_bitfield = bitfield | (1 << index_in_page);
+
+        while let Err(x) = bitfield_ref.compare_exchange_weak(
+            bitfield, new_bitfield, SeqCst, Relaxed
+        ) {
+            bitfield = x;
+            new_bitfield = bitfield | (1 << index_in_page);
+        }
+
+        // The bit dedicated to the Page is inversed (1 for used, 0 for free)
+        if !new_bitfield == MASK_ARENA_BIT {
+            // We were the last block/arena referencing this page
+            // Deallocate it
+            self.deallocate();
+            return;
+        }
+
+        if !self.in_free_list.load(Relaxed) {
+            if self.in_free_list.compare_exchange(
+                false, true, Release, Relaxed
+            ).is_err() {
+                return;
+            }
+
+            let arena_free_list = match self.arena_free_list.upgrade() {
+                Some(ptr) => ptr,
+                _ => return // The arena has been dropped
+            };
+
+            let page_ptr = self as *mut Page<T>;
+
+            loop {
+                let current = arena_free_list.load(Relaxed);
+                self.next_free.store(current, Relaxed);
+
+                if arena_free_list.compare_exchange_weak(
+                    current, page_ptr, Release, Relaxed
+                ).is_ok() {
+                    break;
+                }
+            }
+        }
     }
 }
 

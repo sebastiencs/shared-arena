@@ -17,9 +17,7 @@ use crate::cache_line::CacheAligned;
 
 // const ALIGN_BLOCK: usize = max(128, 64);
 
-pub type IndexInPage = usize;
-
-pub const BITFIELD_WIDTH: usize = 64;
+pub const BITFIELD_WIDTH: usize = std::mem::size_of::<AtomicUsize>() * 8;
 pub const BLOCK_PER_PAGE: usize = BITFIELD_WIDTH - 1;
 pub const MASK_ARENA_BIT: usize = 1 << (BITFIELD_WIDTH - 1);
 
@@ -45,19 +43,17 @@ pub struct Page<T> {
     /// Bitfield representing free and non-free blocks.
     /// - 1 = free
     /// - 0 = non-free
-    /// The most significant bit is dedicated to the Page itself and is
+    /// The most significant bit is dedicated to the arena and is
     /// used to determine when to deallocate the Page.
-    /// With this bit reserved, we used the BITFIELD_WIDTH - 1 bits for
+    /// With this bit reserved, we used BITFIELD_WIDTH - 1 bits for
     /// the blocks.
-    /// Note that the bit for the page is inversed:
+    /// Note that the bit for the arena is inversed:
     /// - 1 = Page is still referenced from an arena
     /// - 0 = The Page isn't referenced in an arena
     /// It is inversed so that Bitfield::trailing_zeros doesn't
     /// count that bit
     pub bitfield: CacheAligned<Bitfield>,
     /// Array of Block
-    /// Ideally, each block would be aligned on the cache line size
-    /// but this would make the Page too big
     pub blocks: [Block<T>; BLOCK_PER_PAGE],
     pub arena_free_list: Weak<AtomicPtr<Page<T>>>,
     pub next_free: AtomicPtr<Page<T>>,
@@ -145,7 +141,7 @@ impl<T> Page<T> {
             new_bitfield = bitfield & !(1 << index_free);
         }
 
-        Some(NonNull::from(&self.blocks[index_free]))
+        self.blocks.get(index_free).map(NonNull::from)
     }
 }
 

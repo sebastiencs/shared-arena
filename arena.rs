@@ -19,29 +19,13 @@ pub struct Arena<T: Sized> {
 unsafe impl<T: Sized> Send for Arena<T> {}
 
 impl<T: Sized> Arena<T> {
-    fn make_new_page(
-        npages: usize,
-        arena_free_list: &Arc<AtomicPtr<Page<T>>>
-    ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
-    {
-        let last = Page::<T>::new(arena_free_list, std::ptr::null_mut());
-        let mut previous = last;
-
-        for _ in 0..npages - 1 {
-            let previous_ptr = unsafe { previous.as_mut() };
-            let page = Page::<T>::new(arena_free_list, previous_ptr);
-            previous = page;
-        }
-
-        (previous, last)
-    }
 
     fn alloc_new_page(&mut self) -> NonNull<Page<T>> {
         let len = self.npages;
 
         let to_allocate = len.min(900_000);
 
-        let (mut first, mut last) = Self::make_new_page(to_allocate, &self.free);
+        let (mut first, mut last) = Page::make_list(to_allocate, &self.free);
 
         let (first_ref, last_ref) = unsafe {
             (first.as_mut(), last.as_mut())
@@ -95,7 +79,7 @@ impl<T: Sized> Arena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
         let free = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
 
-        let (mut first, _) = Self::make_new_page(npages, &free);
+        let (mut first, _) = Page::make_list(npages, &free);
         let first_ref = unsafe { first.as_mut() };
 
         free.as_ref().store(first_ref, Relaxed);

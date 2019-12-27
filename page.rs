@@ -78,7 +78,7 @@ impl<T> Page<T> {
     }
 
     fn new(
-        arena_free_list: &Arc<AtomicPtr<Page<T>>>,
+        arena_free_list: Weak<AtomicPtr<Page<T>>>,
         next: *mut Page<T>
     ) -> NonNull<Page<T>>
     {
@@ -97,7 +97,7 @@ impl<T> Page<T> {
 
         let free_ptr = &mut page.arena_free_list as *mut Weak<AtomicPtr<Page<T>>>;
         unsafe {
-            free_ptr.write(Arc::downgrade(arena_free_list));
+            free_ptr.write(arena_free_list);
         }
 
         // initialize the blocks
@@ -117,12 +117,14 @@ impl<T> Page<T> {
         arena_free_list: &Arc<AtomicPtr<Page<T>>>
     ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
     {
-        let last = Page::<T>::new(arena_free_list, std::ptr::null_mut());
+        let arena_free_list = Arc::downgrade(arena_free_list);
+
+        let last = Page::<T>::new(arena_free_list.clone(), std::ptr::null_mut());
         let mut previous = last;
 
         for _ in 0..npages - 1 {
             let previous_ptr = unsafe { previous.as_mut() };
-            let page = Page::<T>::new(arena_free_list, previous_ptr);
+            let page = Page::<T>::new(arena_free_list.clone(), previous_ptr);
             previous = page;
         }
 

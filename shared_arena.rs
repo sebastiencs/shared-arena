@@ -58,10 +58,11 @@ impl<T: Sized> SharedArena<T> {
         fun();
     }
 
-    fn alloc_new_page(&self) -> NonNull<Page<T>> {
-        let len = self.npages.load(Relaxed);
-
-        let to_allocate = len.max(1).min(900_000);
+    fn alloc_new_page(&self) {
+        let to_allocate = self.npages
+                              .load(Relaxed)
+                              .max(1)
+                              .min(900_000);
 
         let (mut first, mut last) = Page::make_list(to_allocate, &self.free);
 
@@ -69,23 +70,34 @@ impl<T: Sized> SharedArena<T> {
             (first.as_mut(), last.as_mut())
         };
 
+        // We have to touch self.page_list before self.free because
+        // shrink_to_fit might be running at the same time with another
+        // thread.
+        // If we update self.page_list _after_ self.free shrink_to_fit
+        // will try to remove pages that are not yet in self.page_list
         loop {
-            let current = self.free.load(Relaxed);
-            last_ref.next_free = AtomicPtr::new(current);
+            let current = self.page_list.load(Relaxed);
+            last_ref.next = AtomicPtr::new(current);
 
-            if self.free.compare_exchange(
-                current, first_ref, Release, Relaxed
+            if self.page_list.compare_exchange_weak(
+                current, first_ref, AcqRel, Relaxed
             ).is_ok() {
                 break;
             }
         }
 
-        last_ref.next = AtomicPtr::new(self.page_list.load(Relaxed));
-        self.page_list.store(first_ref, Relaxed);
+        loop {
+            let current = self.free.load(Relaxed);
+            last_ref.next_free = AtomicPtr::new(current);
+
+            if self.free.compare_exchange_weak(
+                current, first_ref, AcqRel, Relaxed
+            ).is_ok() {
+                break;
+            }
+        }
 
         self.npages.fetch_add(to_allocate, Relaxed);
-
-        first
     }
 
     fn find_place(&self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
@@ -98,8 +110,18 @@ impl<T: Sized> SharedArena<T> {
 
                 let next = page.next_free.load(Relaxed);
 
-                // self.free might have changed here
+                // No free block on the page, we remove it from the free list
+
+                // self.free might have already changed
+                // Do nothing if it changed, some blocks on the page might be
+                // free the next time we reach it
                 if self.free.compare_exchange(page, next, AcqRel, Relaxed).is_ok() {
+
+                    // The page might be not full anymore since the call to
+                    // acquire_free_block but that's fine because other drop of
+                    // ArenaBox/Arc on that page will reinsert the page on
+                    // the free list
+
                     page.in_free_list.store(false, Release);
                 }
             }
@@ -351,7 +373,7 @@ impl<T: Sized> SharedArena<T> {
     /// ```
     pub fn shrink_to_fit(&self) {
         if self.shrinking.compare_exchange(
-            false, true, SeqCst, Relaxed
+            false, true, AcqRel, Relaxed
         ).is_err() {
             return;
         }
@@ -366,7 +388,7 @@ impl<T: Sized> SharedArena<T> {
             let next = &current_value.next_free;
             let next_value = next.load(Relaxed);
 
-            if !current_value.bitfield.load(Relaxed) == 0 {
+            if current_value.bitfield.load(Acquire) == !0 {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).is_err() {
@@ -389,7 +411,7 @@ impl<T: Sized> SharedArena<T> {
         for page in &free_pages {
             let page_ref = unsafe { page.as_ref().unwrap() };
 
-            if !page_ref.bitfield.load(Relaxed) == 0 {
+            if page_ref.bitfield.load(Acquire) == !0 {
                 to_drop.push(*page);
             } else {
                 'cas: loop {
@@ -397,7 +419,7 @@ impl<T: Sized> SharedArena<T> {
                     page_ref.next_free.store(current, Relaxed);
 
                     if self.free.compare_exchange_weak(
-                        current, *page, Release, Relaxed
+                        current, *page, AcqRel, Relaxed
                     ).is_ok() {
                         break 'cas;
                     }
@@ -405,8 +427,8 @@ impl<T: Sized> SharedArena<T> {
             }
         }
 
-        // Now we are 100% sure that pages in to_drop are/will not be referenced
-        // anymore
+        // Now we are 100% sure that pages in to_drop are/will not be
+        // referenced anymore
 
         let mut current: &AtomicPtr<Page<T>> = &self.page_list;
 
@@ -430,11 +452,11 @@ impl<T: Sized> SharedArena<T> {
         self.npages.fetch_sub(to_drop.len(), Relaxed);
 
         for page in to_drop.iter().rev() {
-            // Invoke Page::drop and deallocate it
+            // Invoke Page::drop
             unsafe { std::ptr::drop_in_place(*page) }
         }
 
-        self.shrinking.store(false, Relaxed);
+        self.shrinking.store(false, Release);
     }
 
     /// Returns a tuple of non-free and free spaces in the arena
@@ -514,6 +536,7 @@ impl<T> Drop for SharedArena<T> {
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let next_next = next_ref.next.load(Relaxed);
             unsafe {
+                // Invoke Page::drop
                 std::ptr::drop_in_place(next);
             }
             next = next_next;
@@ -572,7 +595,7 @@ impl<T> std::fmt::Debug for SharedArena<T> {
 mod tests {
     #[test]
     fn arena_shrink() {
-        let mut arena = super::SharedArena::<usize>::with_capacity(1000);
+        let arena = super::SharedArena::<usize>::with_capacity(1000);
         assert_eq!(arena.stats(), (0, 1008));
         arena.shrink_to_fit();
         assert_eq!(arena.stats(), (0, 0));
@@ -580,7 +603,7 @@ mod tests {
 
     #[test]
     fn arena_shrink2() {
-        let mut arena = super::SharedArena::<usize>::with_capacity(1000);
+        let arena = super::SharedArena::<usize>::with_capacity(1000);
 
         let _a = arena.alloc(1);
         arena.shrink_to_fit();
@@ -608,7 +631,7 @@ mod tests {
 
     #[test]
     fn arena_size() {
-        let mut arena = super::SharedArena::<usize>::with_capacity(1000);
+        let arena = super::SharedArena::<usize>::with_capacity(1000);
 
         assert_eq!(arena.size_lists(), (16, 16));
         let a = arena.alloc(1);
@@ -645,7 +668,7 @@ mod tests {
         arena.shrink_to_fit();
         assert_eq!(arena.size_lists(), (0, 0));
 
-        let a = arena.alloc(1);
+        let _a = arena.alloc(1);
         assert_eq!(arena.size_lists(), (1, 1));
     }
 }

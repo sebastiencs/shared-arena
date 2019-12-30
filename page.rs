@@ -1,5 +1,5 @@
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicPtr, AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*};
 use std::cell::UnsafeCell;
 use std::sync::{Arc, Weak};
 
@@ -134,7 +134,6 @@ impl<T> Page<T> {
     /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
     ///
     /// If there is no free block, it returns None
-    #[inline(never)]
     pub fn acquire_free_block(&self) -> Option<NonNull<Block<T>>> {
 
         let mut bitfield = self.bitfield.load(Relaxed);
@@ -145,12 +144,12 @@ impl<T> Page<T> {
             return None;
         }
 
-        // Bitfield where we clear the bit of the free node to mark
+        // Bitfield where we clear the bit of the free block to mark
         // it as non-free
         let mut new_bitfield = bitfield & !(1 << index_free);
 
         while let Err(x) = self.bitfield.compare_exchange_weak(
-            bitfield, new_bitfield, SeqCst, Relaxed
+            bitfield, new_bitfield, AcqRel, Relaxed
         ) {
             bitfield = x;
             index_free = bitfield.trailing_zeros() as usize;
@@ -181,7 +180,7 @@ impl<T> Page<T> {
         let mut new_bitfield = bitfield | (1 << index_in_page);
 
         while let Err(x) = bitfield_ref.compare_exchange_weak(
-            bitfield, new_bitfield, SeqCst, Relaxed
+            bitfield, new_bitfield, AcqRel, Relaxed
         ) {
             bitfield = x;
             new_bitfield = bitfield | (1 << index_in_page);
@@ -214,7 +213,7 @@ impl<T> Page<T> {
                 self.next_free.store(current, Relaxed);
 
                 if arena_free_list.compare_exchange_weak(
-                    current, page_ptr, Release, Relaxed
+                    current, page_ptr, AcqRel, Relaxed
                 ).is_ok() {
                     break;
                 }
@@ -231,7 +230,7 @@ impl<T> Drop for Page<T> {
         let mut new_bitfield = bitfield & !MASK_ARENA_BIT;
 
         while let Err(x) = self.bitfield.compare_exchange_weak(
-            bitfield, new_bitfield, SeqCst, Relaxed
+            bitfield, new_bitfield, AcqRel, Relaxed
         ) {
             bitfield = x;
             new_bitfield = bitfield & !MASK_ARENA_BIT

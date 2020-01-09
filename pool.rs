@@ -5,10 +5,11 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
-// use super::circular_iter::CircularIterator;
+// This module is a transpose of other modules without atomics
 
 type Pointer<T> = Cell<*mut T>;
 
+#[repr(C)]
 struct Block<T> {
     value: UnsafeCell<T>,
     counter: usize,
@@ -20,10 +21,10 @@ use super::page::{BLOCK_PER_PAGE, MASK_ARENA_BIT};
 struct Page<T> {
     bitfield: usize,
     blocks: [Block<T>; BLOCK_PER_PAGE],
-    pub arena_free_list: Weak<Pointer<Page<T>>>,
-    pub next_free: Pointer<Page<T>>,
-    pub next: Pointer<Page<T>>,
-    pub in_free_list: bool,
+    arena_free_list: Weak<Pointer<Page<T>>>,
+    next_free: Pointer<Page<T>>,
+    next: Pointer<Page<T>>,
+    in_free_list: bool,
 }
 
 pub struct PoolRc<T> {
@@ -58,7 +59,7 @@ impl<T> Drop for PoolRc<T> {
         };
         block.counter -= 1;
         if block.counter == 0 {
-            drop_block_in_pool(page, block);
+            page.drop_block(block);
         }
     }
 }
@@ -72,7 +73,7 @@ pub struct PoolBox<T> {
 impl<T> PoolBox<T> {
     fn new(page: NonNull<Page<T>>, mut block: NonNull<Block<T>>) -> PoolBox<T> {
         let counter = &mut unsafe { block.as_mut() }.counter;
-        // See PoolBox<T>::new for why we touch the counter
+        // See ArenaBox<T>::new for why we touch the counter
         assert!(*counter == 0, "PoolBox: Counter not zero {}", counter);
         *counter = 1;
         PoolBox { block, page, _marker: PhantomData }
@@ -92,21 +93,6 @@ impl<T> std::ops::DerefMut for PoolBox<T> {
     }
 }
 
-fn drop_block_in_pool<T>(page: &mut Page<T>, block: &Block<T>) {
-    unsafe {
-        // Drop the inner value
-        std::ptr::drop_in_place(block.value.get());
-    }
-    let index_in_page = block.index_in_page;
-    page.bitfield |= 1 << index_in_page;
-    // The bit dedicated to the Page is inversed (1 for used, 0 for free)
-    if !page.bitfield == 1 << 63 {
-        // We were the last block/arena referencing this page
-        // Deallocate it
-        page.deallocate();
-    }
-}
-
 /// Drop the PoolBox<T>
 ///
 /// The value pointed by this PoolBox is also dropped
@@ -115,10 +101,10 @@ impl<T> Drop for PoolBox<T> {
         let (page, block) = unsafe {
             (self.page.as_mut(), self.block.as_mut())
         };
-        // See PoolBox<T>::new for why we touch the counter
+        // See ArenaBox<T>::new for why we touch the counter
         assert!(block.counter == 1, "PoolBox: Counter != 1 on drop {}", block.counter);
         block.counter = 0;
-        drop_block_in_pool(page, block);
+        page.drop_block(block);
     }
 }
 
@@ -145,7 +131,7 @@ impl<T> Page<T> {
     {
         let mut page_ptr = Self::allocate();
 
-        let mut page = unsafe { page_ptr.as_mut() };
+        let page = unsafe { page_ptr.as_mut() };
 
         // Initialize the page
         // Don't invoke any Drop here, the allocated page is uninitialized
@@ -159,6 +145,7 @@ impl<T> Page<T> {
         let free_ptr = &mut page.arena_free_list as *mut Weak<Pointer<Page<T>>>;
         unsafe {
             free_ptr.write(arena_free_list);
+            // TODO: forget the old weak
         }
 
         // initialize the blocks
@@ -195,7 +182,6 @@ impl<T> Page<T> {
     /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
     ///
     /// If there is no free block, it returns None
-    #[inline]
     pub fn acquire_free_block(&mut self) -> Option<NonNull<Block<T>>> {
         let index_free = self.bitfield.trailing_zeros() as usize;
 
@@ -207,6 +193,36 @@ impl<T> Page<T> {
         self.bitfield &= !(1 << index_free);
 
         Some(NonNull::from(&self.blocks[index_free]))
+    }
+
+    fn drop_block(&mut self, block: &Block<T>) {
+        unsafe {
+            // Drop the inner value
+            std::ptr::drop_in_place(block.value.get());
+        }
+        let index_in_page = block.index_in_page;
+        self.bitfield |= 1 << index_in_page;
+
+        // The bit dedicated to the Page is inversed (1 for used, 0 for free)
+        if !self.bitfield == MASK_ARENA_BIT {
+            // We were the last block/arena referencing this page
+            // Deallocate it
+            self.deallocate();
+            return;
+        }
+
+        if !self.in_free_list {
+            self.in_free_list = true;
+
+            let arena_free_list = match self.arena_free_list.upgrade() {
+                Some(ptr) => ptr,
+                _ => return // The arena has been dropped
+            };
+
+            let current = arena_free_list.get();
+            self.next_free.set(current);
+            arena_free_list.set(self);
+        }
     }
 }
 
@@ -222,14 +238,13 @@ impl<T> Drop for Page<T> {
     }
 }
 
-/// The difference with SharedArena is that the pool
-/// is not sendable to other threads, neither its PoolBox and
+/// The difference with SharedArena is that Pool
+/// cannot be shared/sent to other threads, neither PoolBox or
 /// PoolRc
 pub struct Pool<T: Sized> {
     free: Rc<Pointer<Page<T>>>,
     page_list: Pointer<Page<T>>,
     npages: usize,
-    // pages: Vec<NonNull<Page<T>>>,
     _marker: PhantomData<*mut ()>
 }
 
@@ -240,7 +255,7 @@ impl<T: Sized> Pool<T> {
 
     pub fn with_capacity(cap: usize) -> Pool<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
-        let mut free = Rc::new(Cell::new(std::ptr::null_mut()));
+        let free = Rc::new(Cell::new(std::ptr::null_mut()));
 
         let (mut first, _) = Page::make_list(npages, &free);
         let first_ref = unsafe { first.as_mut() };
@@ -255,19 +270,10 @@ impl<T: Sized> Pool<T> {
         }
     }
 
-    // pub fn with_capacity(cap: usize) -> Pool<T> {
-    //     let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
-
-    //     let mut pages = Vec::with_capacity(npages);
-    //     pages.resize_with(npages, Page::<T>::new);
-
-    //     Pool { last_found: 0, pages, _marker: PhantomData }
-    // }
-
     fn alloc_new_page(&mut self) -> NonNull<Page<T>> {
         let len = self.npages;
 
-        let to_allocate = len.min(900_000);
+        let to_allocate = len.max(1).min(900_000);
 
         let (mut first, mut last) = Page::make_list(to_allocate, &self.free);
 
@@ -287,10 +293,8 @@ impl<T: Sized> Pool<T> {
     }
 
     fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
-
         loop {
             while let Some(page) = unsafe { self.free.get().as_mut() } {
-
                 if let Some(block) = page.acquire_free_block() {
                     return (NonNull::from(page), block);
                 }
@@ -300,8 +304,6 @@ impl<T: Sized> Pool<T> {
                 self.free.set(next);
                 page.in_free_list = false;
             }
-
-            println!("POOL ALLOCATE MORE", );
             self.alloc_new_page();
         }
     }
@@ -327,6 +329,47 @@ impl<T: Sized> Pool<T> {
 
         PoolRc::new(page, block)
     }
+
+    pub fn shrink_to_fit(&mut self) {
+
+        let mut current: &Pointer<Page<T>> = &self.free;
+
+        let mut to_drop = vec![];
+
+        while let Some(current_value) = unsafe { current.get().as_mut() } {
+            let next = &current_value.next_free;
+            let next_value = next.get();
+
+            if current_value.bitfield == !0 {
+                current.set(next_value);
+                to_drop.push(current_value as *const _ as *mut Page<T>);
+            } else {
+                current = next;
+            }
+        }
+
+        let mut current: &Pointer<Page<T>> = &self.page_list;
+
+        // Loop on the full list
+        // We remove the pages from it
+        while let Some(current_value) = unsafe { current.get().as_mut() } {
+            let next = &current_value.next;
+            let next_value = next.get();
+
+            if to_drop.contains(&(current_value as *const _ as *mut Page<T>)) {
+                current.set(next_value);
+            } else {
+                current = next;
+            }
+        }
+
+        self.npages -= to_drop.len();
+
+        for page in to_drop.iter().rev() {
+            // Invoke Page::drop
+            unsafe { std::ptr::drop_in_place(*page) }
+        }
+    }
 }
 
 impl<T> Drop for Pool<T> {
@@ -334,10 +377,11 @@ impl<T> Drop for Pool<T> {
         let mut next = self.page_list.get();
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
+            let next_next = next_ref.next.get();
             unsafe {
                 std::ptr::drop_in_place(next);
             }
-            next = next_ref.next.get();
+            next = next_next;
         }
     }
 }

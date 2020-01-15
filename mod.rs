@@ -6,7 +6,6 @@ mod arena_box;
 mod pool;
 
 pub use {
-    arena::Arena,
     shared_arena::SharedArena,
     arena_arc::ArenaArc,
     arena_box::ArenaBox,

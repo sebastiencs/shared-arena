@@ -372,9 +372,7 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ```
     pub fn shrink_to_fit(&self) {
-        if self.shrinking.compare_exchange(
-            false, true, AcqRel, Relaxed
-        ).is_err() {
+        if self.shrinking.swap(true, AcqRel) {
             return;
         }
 

@@ -195,10 +195,13 @@ impl<T> Page<T> {
         }
 
         if !self.in_free_list.load(Relaxed) {
-            if self.in_free_list.compare_exchange(
-                false, true, Release, Relaxed
-            ).is_err() {
-                return;
+            if self.in_free_list.swap(true, Acquire) {
+                // Another thread changed self.in_free_list
+                // We could use compare_exchange here but swap is faster
+                // 'lock cmpxchg' vs 'xchg' on x86
+                // For future reference:
+                // https://gpuopen.com/gdc-presentations/2019/gdc-2019-s2-amd-ryzen-processor-software-optimization.pdf
+                return
             }
 
             let arena_free_list = match self.arena_free_list.upgrade() {

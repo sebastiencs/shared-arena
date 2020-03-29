@@ -37,4 +37,16 @@ This crate provides 2 memory pools:
 
 ![](https://github.com/sebastiencs/shared-arena/blob/images/table.svg)
 
+# Performance
+
+On my laptop, with Intel i7-6560U, running Clear Linux OS 32700, A single allocation with `SharedArena` is 4+ faster than the
+system allocator:
+
+```
+SingleAllocation/SharedArena               time:   [25.112 ns 25.678 ns 26.275 ns]
+SingleAllocation/Box(SystemAllocator)      time:   [112.64 ns 114.44 ns 115.81 ns]
+```
+
+Performances with more allocations:
+
 ![](https://github.com/sebastiencs/shared-arena/blob/images/bench.svg)

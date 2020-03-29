@@ -27,4 +27,10 @@
 
 <br />
 
+
 A thread-safe & efficient memory pool
+
+
+![](https://github.com/sebastiencs/shared-arena/blob/images/table.svg)
+
+![](https://github.com/sebastiencs/shared-arena/blob/images/bench.svg)

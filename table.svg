@@ -1,0 +1,67 @@
+<?xml version='1.0' standalone='no'?>
+<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.1//EN'
+  'http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd'>
+<svg width='1000' height='400' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'>
+
+   <title>SharedArena Table</title>
+
+   <g id='columnGroup'>
+
+     <rect x='0' y='0' width='1000' height='400' fill='white'/>
+
+     <rect x='200' y='0' width='1' height='400' fill='black'/>
+     <rect x='600' y='0' width='1' height='400' fill='black'/>
+     <rect x='400' y='160' width='1' height='400' fill='black'/>
+     <rect x='800' y='160' width='1' height='400' fill='black'/>
+
+     <rect x='0' y='100' width='1000' height='1' fill='black'/>
+     <rect x='0' y='160' width='1000' height='1' fill='black'/>
+     <rect x='0' y='220' width='1000' height='1' fill='black'/>
+     <rect x='0' y='280' width='1000' height='1' fill='black'/>
+     <rect x='0' y='340' width='1000' height='1' fill='black'/>
+
+     <text x='25' y='140' font-size='28px'>
+       <tspan x='25'>Send + Sync</tspan>
+       <tspan x='385' y='150' fill='green' font-size='70px'>✔</tspan>
+       <tspan x='785' y='150' fill='red' font-size='50px'>✘</tspan>
+     </text>
+
+     <text x='35' y='200' font-size='28px'>
+       <tspan x='35'></tspan>
+       <tspan x='240' y='200' font-size='28px' font-weight='bold'>ArenaBox</tspan>
+       <tspan x='445' y='200' font-size='28px' font-weight='bold'>ArenaArc</tspan>
+       <tspan x='650' y='200' font-size='28px' font-weight='bold'>PoolBox</tspan>
+       <tspan x='855' y='200' font-size='28px' font-weight='bold'>PoolRc</tspan>
+     </text>
+
+     <text x='65' y='265' font-size='28px'>
+       <tspan x='40' y='260'>DerefMut</tspan>
+       <tspan x='285' font-size='48px' fill='green'>✔</tspan>
+       <tspan x='490' font-size='38px' fill='red'>✘</tspan>
+       <tspan x='690' font-size='48px' fill='green'>✔</tspan>
+       <tspan x='890' font-size='38px' fill='red'>✘</tspan>
+     </text>
+
+     <text x='65' y='325' font-size='28px'>
+       <tspan x='60' y='320'>Clone</tspan>
+       <tspan x='285' font-size='38px' fill='red'>✘</tspan>
+       <tspan x='490' font-size='48px' fill='green'>✔</tspan>
+       <tspan x='690' font-size='38px' fill='red'>✘</tspan>
+       <tspan x='890' font-size='48px' fill='green'>✔</tspan>
+     </text>
+
+     <text x='65' y='385' font-size='28px'>
+       <tspan x='25' y='380'>Send + Sync</tspan>
+       <tspan x='285' font-size='48px' fill='green'>✔</tspan>
+       <tspan x='490' font-size='48px' fill='green'>✔</tspan>
+       <tspan x='690' font-size='38px' fill='red'>✘</tspan>
+       <tspan x='890' font-size='38px' fill='red'>✘</tspan>
+     </text>
+
+     <text x='400' y='65' font-size='40px' text-anchor='middle'>
+       <tspan x='400' font-weight='bold' fill='black'>SharedArena</tspan>
+       <tspan x='800' font-weight='bold' fill='black'>Pool</tspan>
+     </text>
+
+   </g>
+</svg>

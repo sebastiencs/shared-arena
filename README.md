@@ -53,14 +53,14 @@ Performances with more allocations:
 
 The graphic was generated with criterion, reproducible with `cargo bench`
 
-# Allocation method (internal)
+# Implementation details
 
-`SharedArena` and `Pool` are both using the same method of allocation, derived from a [Free list](https://en.wikipedia.org/wiki/Free_list).  
+`SharedArena` and `Pool` use the same method of allocation, derived from a [Free list](https://en.wikipedia.org/wiki/Free_list).  
 
-They allocate by pages, which include 63 elements, and keep a list of pages where at least 1 element is not allocated.  
-A page has a bitfield of 64 bits, each bit indicates whether or not the element is allocated by the user. The 64th bit is reserved for the arena itself.  
+They allocate by pages, which include 63 elements, and keep a list of pages where at least 1 element is not used by the user.  
+A page has a bitfield of 64 bits, each bit indicates whether or not the element is used. The 64th bit is reserved for the arena itself.  
 
-In this bitfield, if the bit is set to zero, the element is used/allocated by the user.  
+In this bitfield, if the bit is set to zero, the element is already used.  
 So counting the number of trailing zeros gives us the index of the next free element.  
 Only 1 cpu instruction (!) is necessary to find an empty space: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
 
@@ -68,6 +68,5 @@ Only 1 cpu instruction (!) is necessary to find an empty space: such as `tzcnt`/
 1101101000
 ```
 With the bitfield above, the 4th element is free.  
-This method is both fast and cache friendly.  
 
 The difference between `SharedArena` and `Pool` is that `SharedArena` uses atomics.

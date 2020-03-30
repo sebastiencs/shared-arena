@@ -65,7 +65,7 @@ So counting the number of trailing zeros gives us the index of the next free ele
 Only 1 cpu instruction (!) is necessary to find an empty space: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
 
 ```
-1101101000
+[..]1101101000
 ```
 With the bitfield above, the 4th element is free.  
 

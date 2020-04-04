@@ -70,3 +70,5 @@ Only 1 cpu instruction (!) is necessary to find an empty space: such as `tzcnt`/
 With the bitfield above, the 4th element is free.  
 
 The difference between `SharedArena` and `Pool` is that `SharedArena` uses atomics.
+
+![](https://github.com/sebastiencs/shared-arena/blob/images/shared_arena.svg)

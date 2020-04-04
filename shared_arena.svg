@@ -104,8 +104,8 @@
       <g class="com.sun.star.drawing.LineShape">
        <g id="id5">
         <rect class="BoundingBox" stroke="none" fill="none" x="7199" y="2950" width="2002" height="301"/>
-        <path fill="none" stroke="rgb(0,0,0)" d="M 7200,3100 L 8770,3100"/>
-        <path fill="rgb(0,0,0)" stroke="none" d="M 9200,3100 L 8750,2950 8750,3250 9200,3100 Z"/>
+        <path fill="none" stroke="rgb(128,128,128)" d="M 7200,3100 L 8770,3100"/>
+        <path fill="rgb(128,128,128)" stroke="none" d="M 9200,3100 L 8750,2950 8750,3250 9200,3100 Z"/>
        </g>
       </g>
       <g class="com.sun.star.drawing.CustomShape">
@@ -223,8 +223,8 @@
       <g class="com.sun.star.drawing.LineShape">
        <g id="id20">
         <rect class="BoundingBox" stroke="none" fill="none" x="13299" y="3050" width="2002" height="301"/>
-        <path fill="none" stroke="rgb(0,0,0)" d="M 13300,3200 L 14870,3200"/>
-        <path fill="rgb(0,0,0)" stroke="none" d="M 15300,3200 L 14850,3050 14850,3350 15300,3200 Z"/>
+        <path fill="none" stroke="rgb(128,128,128)" d="M 13300,3200 L 14870,3200"/>
+        <path fill="rgb(128,128,128)" stroke="none" d="M 15300,3200 L 14850,3050 14850,3350 15300,3200 Z"/>
        </g>
       </g>
      </g>

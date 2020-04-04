@@ -61,13 +61,13 @@ They allocate by pages, which include 63 elements, and keep a list of pages wher
 A page has a bitfield of 64 bits, each bit indicates whether or not the element is used. The 64th bit is reserved for the arena itself.  
 
 In this bitfield, if the bit is set to zero, the element is already used.  
-So counting the number of trailing zeros gives us the index of the next free element.  
+So counting the number of trailing zeros gives us the index of an unused element.  
 Only 1 cpu instruction is necessary to find an unused element: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
 
 ```
 [..]1101101000
 ```
-With the bitfield above, the 4th element is free.  
+With the bitfield above, the 4th element is unused.  
 
 The difference between `SharedArena` and `Pool` is that `SharedArena` uses atomics.
 

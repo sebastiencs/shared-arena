@@ -39,12 +39,12 @@ This crate provides 2 memory pools:
 
 # Performance
 
-On my laptop, with Intel i7-6560U, running Clear Linux OS 32700, A single allocation with `SharedArena` is 4+ faster than the
+On my laptop, with Intel i7-6560U, running Clear Linux OS 32700, An allocation with `SharedArena` is 4+ faster than the
 system allocator:
 
 ```
-SingleAllocation/SharedArena               time:   [25.112 ns 25.678 ns 26.275 ns]
-SingleAllocation/Box(SystemAllocator)      time:   [112.64 ns 114.44 ns 115.81 ns]
+Allocation/SharedArena               time:   [25.112 ns 25.678 ns 26.275 ns]
+Allocation/Box(SystemAllocator)      time:   [112.64 ns 114.44 ns 115.81 ns]
 ```
 
 Performances with more allocations:
@@ -62,7 +62,7 @@ A page has a bitfield of 64 bits, each bit indicates whether or not the element 
 
 In this bitfield, if the bit is set to zero, the element is already used.  
 So counting the number of trailing zeros gives us the index of the next free element.  
-Only 1 cpu instruction (!) is necessary to find an empty space: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
+Only 1 cpu instruction is necessary to find an empty space: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
 
 ```
 [..]1101101000

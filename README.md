@@ -1,7 +1,7 @@
 <h1 align="center">shared-arena</h1>
 <div align="center">
   <strong>
-    A thread-safe, lock-free & efficient memory pool
+    A thread-safe & efficient memory pool
   </strong>
 </div>
 

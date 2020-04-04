@@ -62,7 +62,7 @@ A page has a bitfield of 64 bits, each bit indicates whether or not the element 
 
 In this bitfield, if the bit is set to zero, the element is already used.  
 So counting the number of trailing zeros gives us the index of the next free element.  
-Only 1 cpu instruction is necessary to find an empty space: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
+Only 1 cpu instruction is necessary to find an unused element: such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
 
 ```
 [..]1101101000

@@ -39,7 +39,7 @@ This crate provides 2 memory pools:
 
 # Performance
 
-On my laptop, with Intel i7-6560U, running Clear Linux OS 32700, An allocation with `SharedArena` is 4+ faster than the
+On my laptop, with Intel i7-6560U, running Clear Linux OS 32700, an allocation with `SharedArena` is 4+ faster than the
 system allocator:
 
 ```

@@ -55,7 +55,7 @@ The graphic was generated with criterion, reproducible with `cargo bench`
 
 # Implementation details
 
-`SharedArena` and `Pool` use the same method of allocation, derived from a [Free list](https://en.wikipedia.org/wiki/Free_list).  
+`SharedArena` and `Pool` use the same method of allocation, derived from a [free list](https://en.wikipedia.org/wiki/Free_list).  
 
 They allocate by pages, which include 63 elements, and keep a list of pages where at least 1 element is not used by the user.  
 A page has a bitfield of 64 bits, each bit indicates whether or not the element is used. The 64th bit is reserved for the arena itself.  

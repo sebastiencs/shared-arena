@@ -135,33 +135,25 @@ impl<T> Page<T> {
     ///
     /// If there is no free block, it returns None
     pub fn acquire_free_block(&self) -> Option<NonNull<Block<T>>> {
+        loop {
+            let bitfield = self.bitfield.load(Relaxed);
 
-        let mut bitfield = self.bitfield.load(Relaxed);
-
-        let mut index_free = bitfield.trailing_zeros() as usize;
-
-        if index_free == BLOCK_PER_PAGE {
-            return None;
-        }
-
-        // Bitfield where we clear the bit of the free block to mark
-        // it as non-free
-        let mut new_bitfield = bitfield & !(1 << index_free);
-
-        while let Err(x) = self.bitfield.compare_exchange_weak(
-            bitfield, new_bitfield, AcqRel, Relaxed
-        ) {
-            bitfield = x;
-            index_free = bitfield.trailing_zeros() as usize;
+            let index_free = bitfield.trailing_zeros() as usize;
 
             if index_free == BLOCK_PER_PAGE {
                 return None;
             }
 
-            new_bitfield = bitfield & !(1 << index_free);
-        }
+            let bit = 1 << index_free;
 
-        self.blocks.get(index_free).map(NonNull::from)
+            let previous_bitfield = self.bitfield.fetch_and(!bit, AcqRel);
+
+            // We check that the bit was still set in previous_bitfield.
+            // If the bit is zero, it means another thread took it.
+            if previous_bitfield & bit != 0 {
+                return self.blocks.get(index_free).map(NonNull::from);
+            }
+        }
     }
 
     pub(super) fn drop_block(&mut self, block: &Block<T>) {
@@ -172,19 +164,10 @@ impl<T> Page<T> {
 
         let index_in_page = block.index_in_page;
 
-        let bitfield_ref = &self.bitfield;
-
-        let mut bitfield = bitfield_ref.load(Relaxed);
-
         // We set our bit to mark the block as free
-        let mut new_bitfield = bitfield | (1 << index_in_page);
+        let old_bitfield = self.bitfield.fetch_add(1 << index_in_page, AcqRel);
 
-        while let Err(x) = bitfield_ref.compare_exchange_weak(
-            bitfield, new_bitfield, AcqRel, Relaxed
-        ) {
-            bitfield = x;
-            new_bitfield = bitfield | (1 << index_in_page);
-        }
+        let new_bitfield = old_bitfield | (1 << index_in_page);
 
         // The bit dedicated to the Page is inversed (1 for used, 0 for free)
         if !new_bitfield == MASK_ARENA_BIT {
@@ -227,20 +210,11 @@ impl<T> Page<T> {
 
 impl<T> Drop for Page<T> {
     fn drop(&mut self) {
-        let mut bitfield = self.bitfield.load(Relaxed);
-
         // We clear the bit dedicated to the arena
-        let mut new_bitfield = bitfield & !MASK_ARENA_BIT;
-
-        while let Err(x) = self.bitfield.compare_exchange_weak(
-            bitfield, new_bitfield, AcqRel, Relaxed
-        ) {
-            bitfield = x;
-            new_bitfield = bitfield & !MASK_ARENA_BIT
-        }
+        let old_bitfield = self.bitfield.fetch_sub(MASK_ARENA_BIT, AcqRel);
 
         // The bit dedicated to the arena is inversed (1 for used, 0 for free)
-        if !new_bitfield == MASK_ARENA_BIT {
+        if old_bitfield == MASK_ARENA_BIT {
             // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
             self.deallocate();
         }

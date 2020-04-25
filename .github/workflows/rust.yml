@@ -75,4 +75,6 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: miri
-          args: test --all-features
+          # Ignore leaks because of AtomicPtr:
+          # https://github.com/rust-lang/miri/issues/1318
+          args: test --all-features -- -Zmiri-ignore-leaks

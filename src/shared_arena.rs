@@ -13,9 +13,9 @@ use super::arena_box::ArenaBox;
 ///
 /// Pointers to the elements in the SharedArena are shareable as well.
 pub struct SharedArena<T: Sized> {
-    free: AtomicPtr<Page<T>>,
-    pending_free: Arc<AtomicPtr<Page<T>>>,
-    page_list: AtomicPtr<Page<T>>,
+    free_list: AtomicPtr<Page<T>>,
+    pending_free_list: Arc<AtomicPtr<Page<T>>>,
+    full_list: AtomicPtr<Page<T>>,
     npages: AtomicUsize,
     writer: AtomicBool,
     shrinking: AtomicBool,
@@ -51,7 +51,7 @@ impl<T: Sized> SharedArena<T> {
                               .max(1)
                               .min(900_000);
 
-        let (first, mut last) = Page::make_list(to_allocate, &self.pending_free);
+        let (first, mut last) = Page::make_list(to_allocate, &self.pending_free_list);
 
         let first_ptr = first.as_ptr();
         let last_ref = unsafe { last.as_mut() };
@@ -62,21 +62,21 @@ impl<T: Sized> SharedArena<T> {
         // If we update self.page_list _after_ self.free shrink_to_fit
         // will try to remove pages that are not yet in self.page_list
 
-        let current = self.page_list.load(Relaxed);
+        let current = self.full_list.load(Relaxed);
         last_ref.next = AtomicPtr::new(current);
-        self.page_list.swap(first_ptr, AcqRel);
+        self.full_list.swap(first_ptr, AcqRel);
 
-        let current = self.free.load(Relaxed);
+        let current = self.free_list.load(Relaxed);
         assert!(current.is_null(), "Arena.free isn't null");
 
-        self.free.swap(first_ptr, AcqRel);
+        self.free_list.swap(first_ptr, AcqRel);
 
         self.npages.fetch_add(to_allocate, Relaxed);
     }
 
     fn find_place(&self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
         loop {
-            while let Some(page) = unsafe { self.free.load(Acquire).as_mut() } {
+            while let Some(page) = unsafe { self.free_list.load(Acquire).as_mut() } {
 
                 if let Some(block) = page.acquire_free_block() {
                     return (NonNull::from(page), block);
@@ -84,7 +84,7 @@ impl<T: Sized> SharedArena<T> {
 
                 // No free block on the page, we remove it from the free list
                 let next = page.next_free.load(Relaxed);
-                self.free.store(next, Release);
+                self.free_list.store(next, Release);
 
                 // The page might be not full anymore since the call to
                 // acquire_free_block but that's fine because drops of
@@ -95,15 +95,15 @@ impl<T: Sized> SharedArena<T> {
 
             // TODO: See how to reduce branches here
             if let Some(_guard) = WriterGuard::new(&self.writer) {
-                if self.free.load(Relaxed).is_null() {
+                if self.free_list.load(Relaxed).is_null() {
                     // A single and only thread run this code at a time.
 
-                    let pending = self.pending_free.load(Relaxed);
+                    let pending = self.pending_free_list.load(Relaxed);
                     if !pending.is_null() {
                         // Move self.pending_free to self.free.
 
-                        let pending = self.pending_free.swap(std::ptr::null_mut(), AcqRel);
-                        self.free.store(pending, Release);
+                        let pending = self.pending_free_list.swap(std::ptr::null_mut(), AcqRel);
+                        self.free_list.store(pending, Release);
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
 
@@ -120,7 +120,7 @@ impl<T: Sized> SharedArena<T> {
             // So instead of looping on self.free (which will stay null until allocation
             // is done), we check for pages on self.pending_free.
 
-            let mut next = unsafe { self.pending_free.load(Relaxed).as_mut() };
+            let mut next = unsafe { self.pending_free_list.load(Relaxed).as_mut() };
 
             while let Some(page) = next {
                 if let Some(block) = page.acquire_free_block() {
@@ -155,9 +155,9 @@ impl<T: Sized> SharedArena<T> {
 
         SharedArena {
             npages: AtomicUsize::new(npages),
-            free: AtomicPtr::new(first.as_ptr()),
-            pending_free,
-            page_list: AtomicPtr::new(first.as_ptr()),
+            free_list: AtomicPtr::new(first.as_ptr()),
+            pending_free_list: pending_free,
+            full_list: AtomicPtr::new(first.as_ptr()),
             writer: AtomicBool::new(false),
             shrinking: AtomicBool::new(false)
         }
@@ -374,7 +374,7 @@ impl<T: Sized> SharedArena<T> {
             return;
         }
 
-        let mut current: &AtomicPtr<Page<T>> = &self.free;
+        let mut current: &AtomicPtr<Page<T>> = &self.free_list;
 
         let mut free_pages = vec![];
 
@@ -396,7 +396,7 @@ impl<T: Sized> SharedArena<T> {
             }
         }
 
-        let mut current: &AtomicPtr<Page<T>> = &self.pending_free;
+        let mut current: &AtomicPtr<Page<T>> = &self.pending_free_list;
 
         // We loop on the free list to get all pages that have 0 reference to
         // them and remove them from the free list
@@ -431,10 +431,10 @@ impl<T: Sized> SharedArena<T> {
                 to_drop.push(*page);
             } else {
                 'cas: loop {
-                    let current = self.free.load(Relaxed);
+                    let current = self.free_list.load(Relaxed);
                     page_ref.next_free.store(current, Relaxed);
 
-                    if self.free.compare_exchange_weak(
+                    if self.free_list.compare_exchange_weak(
                         current, *page, AcqRel, Relaxed
                     ).is_ok() {
                         break 'cas;
@@ -446,7 +446,7 @@ impl<T: Sized> SharedArena<T> {
         // Now we are 100% sure that pages in to_drop are/will not be
         // referenced anymore
 
-        let mut current: &AtomicPtr<Page<T>> = &self.page_list;
+        let mut current: &AtomicPtr<Page<T>> = &self.full_list;
 
         // Loop on the full list
         // We remove the pages from it
@@ -488,7 +488,7 @@ impl<T: Sized> SharedArena<T> {
     /// assert!(used == 1 && free == 62);
     /// ```
     pub fn stats(&self) -> (usize, usize) {
-        let mut next = self.free.load(Relaxed);
+        let mut next = self.free_list.load(Relaxed);
 
         let mut free = 0;
 
@@ -498,7 +498,7 @@ impl<T: Sized> SharedArena<T> {
             next = next_next;
         }
 
-        let mut next = self.pending_free.load(Relaxed);
+        let mut next = self.pending_free_list.load(Relaxed);
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let next_next = next_ref.next_free.load(Relaxed);
@@ -513,21 +513,21 @@ impl<T: Sized> SharedArena<T> {
 
     #[cfg(test)]
     pub(crate) fn size_lists(&self) -> (usize, usize) {
-        let mut next = self.page_list.load(Relaxed);
+        let mut next = self.full_list.load(Relaxed);
         let mut size = 0;
         while let Some(next_ref) = unsafe { next.as_mut() } {
             next = next_ref.next.load(Relaxed);
             size += 1;
         }
 
-        let mut next = self.free.load(Relaxed);
+        let mut next = self.free_list.load(Relaxed);
         let mut free = 0;
         while let Some(next_ref) = unsafe { next.as_mut() } {
             next = next_ref.next_free.load(Relaxed);
             free += 1;
         }
 
-        let mut next = self.pending_free.load(Relaxed);
+        let mut next = self.pending_free_list.load(Relaxed);
         while let Some(next_ref) = unsafe { next.as_mut() } {
             next = next_ref.next_free.load(Relaxed);
             free += 1;
@@ -540,7 +540,7 @@ impl<T: Sized> SharedArena<T> {
     pub(crate) fn display_list(&self) {
         let mut full = vec![];
 
-        let mut next = self.page_list.load(Relaxed);
+        let mut next = self.full_list.load(Relaxed);
         while let Some(next_ref) = unsafe { next.as_mut() } {
             full.push(next);
             next = next_ref.next.load(Relaxed);
@@ -548,7 +548,7 @@ impl<T: Sized> SharedArena<T> {
 
         let mut list_free = vec![];
 
-        let mut next = self.free.load(Relaxed);
+        let mut next = self.free_list.load(Relaxed);
         while let Some(next_ref) = unsafe { next.as_mut() } {
             list_free.push(next);
             next = next_ref.next_free.load(Relaxed);
@@ -561,7 +561,7 @@ impl<T: Sized> SharedArena<T> {
 
 impl<T> Drop for SharedArena<T> {
     fn drop(&mut self) {
-        let mut next = self.page_list.load(Relaxed);
+        let mut next = self.full_list.load(Relaxed);
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let next_next = next_ref.next.load(Relaxed);
@@ -597,7 +597,7 @@ impl<T> std::fmt::Debug for SharedArena<T> {
 
         let mut vec = Vec::with_capacity(npages);
 
-        let mut next = self.page_list.load(Relaxed);
+        let mut next = self.full_list.load(Relaxed);
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let used = next_ref.bitfield.load(Relaxed).count_zeros() as usize;

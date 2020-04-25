@@ -13,7 +13,8 @@ use super::arena_box::ArenaBox;
 ///
 /// Pointers to the elements in the SharedArena are shareable as well.
 pub struct SharedArena<T: Sized> {
-    free: Arc<AtomicPtr<Page<T>>>,
+    free: AtomicPtr<Page<T>>,
+    pending_free: Arc<AtomicPtr<Page<T>>>,
     page_list: AtomicPtr<Page<T>>,
     npages: AtomicUsize,
     writer: AtomicBool,
@@ -29,9 +30,11 @@ struct WriterGuard<'a> {
 
 impl WriterGuard<'_> {
     fn new(writer: &AtomicBool) -> Option<WriterGuard> {
-        writer.compare_exchange(false, true, AcqRel, Relaxed)
-              .map(|_| WriterGuard { writer })
-              .ok()
+        if !writer.load(Relaxed) && !writer.swap(true, AcqRel) {
+            Some(WriterGuard { writer })
+        } else {
+            None
+        }
     }
 }
 
@@ -42,60 +45,31 @@ impl Drop for WriterGuard<'_> {
 }
 
 impl<T: Sized> SharedArena<T> {
-
-    /// Ensure that a single thread is running `fun` at a time
-    fn with_single_writer(&self, fun: impl Fn()) {
-        let _writer_guard = match WriterGuard::new(&self.writer) {
-            Some(guard) => guard,
-            _ => return
-        };
-
-        if !self.free.load(Acquire).is_null() {
-            // self.pages has already been updated
-            return;
-        }
-
-        fun();
-    }
-
     fn alloc_new_page(&self) {
         let to_allocate = self.npages
                               .load(Relaxed)
                               .max(1)
                               .min(900_000);
 
-        let (mut first, mut last) = Page::make_list(to_allocate, &self.free);
+        let (first, mut last) = Page::make_list(to_allocate, &self.pending_free);
 
-        let (first_ref, last_ref) = unsafe {
-            (first.as_mut(), last.as_mut())
-        };
+        let first_ptr = first.as_ptr();
+        let last_ref = unsafe { last.as_mut() };
 
         // We have to touch self.page_list before self.free because
         // shrink_to_fit might be running at the same time with another
         // thread.
         // If we update self.page_list _after_ self.free shrink_to_fit
         // will try to remove pages that are not yet in self.page_list
-        loop {
-            let current = self.page_list.load(Relaxed);
-            last_ref.next = AtomicPtr::new(current);
 
-            if self.page_list.compare_exchange_weak(
-                current, first_ref, AcqRel, Relaxed
-            ).is_ok() {
-                break;
-            }
-        }
+        let current = self.page_list.load(Relaxed);
+        last_ref.next = AtomicPtr::new(current);
+        self.page_list.swap(first_ptr, AcqRel);
 
-        loop {
-            let current = self.free.load(Relaxed);
-            last_ref.next_free = AtomicPtr::new(current);
+        let current = self.free.load(Relaxed);
+        assert!(current.is_null(), "Arena.free isn't null");
 
-            if self.free.compare_exchange_weak(
-                current, first_ref, AcqRel, Relaxed
-            ).is_ok() {
-                break;
-            }
-        }
+        self.free.swap(first_ptr, AcqRel);
 
         self.npages.fetch_add(to_allocate, Relaxed);
     }
@@ -108,27 +82,53 @@ impl<T: Sized> SharedArena<T> {
                     return (NonNull::from(page), block);
                 }
 
-                let next = page.next_free.load(Relaxed);
-
                 // No free block on the page, we remove it from the free list
+                let next = page.next_free.load(Relaxed);
+                self.free.store(next, Release);
 
-                // self.free might have already changed
-                // Do nothing if it changed, some blocks on the page might be
-                // free the next time we reach it
-                if self.free.compare_exchange(page, next, AcqRel, Relaxed).is_ok() {
-
-                    // The page might be not full anymore since the call to
-                    // acquire_free_block but that's fine because other drop of
-                    // ArenaBox/Arc on that page will reinsert the page on
-                    // the free list
-
-                    page.in_free_list.store(false, Release);
-                }
+                // The page might be not full anymore since the call to
+                // acquire_free_block but that's fine because drops of
+                // an ArenaBox/Arc on that page will insert the page on
+                // self.pending_free.
+                page.in_free_list.store(false, Release);
             }
 
-            self.with_single_writer(|| {
-                self.alloc_new_page();
-            });
+            // TODO: See how to reduce branches here
+            if let Some(_guard) = WriterGuard::new(&self.writer) {
+                if self.free.load(Relaxed).is_null() {
+                    // A single and only thread run this code at a time.
+
+                    let pending = self.pending_free.load(Relaxed);
+                    if !pending.is_null() {
+                        // Move self.pending_free to self.free.
+
+                        let pending = self.pending_free.swap(std::ptr::null_mut(), AcqRel);
+                        self.free.store(pending, Release);
+                    } else {
+                        // No pages in self.pending_free. We allocate new pages.
+
+                        self.alloc_new_page();
+                    }
+                }
+                continue;
+            };
+
+            // This block is reached if an another thread is allocating or replacing
+            // self.pending_free (the block just above).
+            // Since allocating might take a while, some page might become free during
+            // this time.
+            // So instead of looping on self.free (which will stay null until allocation
+            // is done), we check for pages on self.pending_free.
+
+            let mut next = unsafe { self.pending_free.load(Relaxed).as_mut() };
+
+            while let Some(page) = next {
+                if let Some(block) = page.acquire_free_block() {
+                    return (NonNull::from(page), block);
+                }
+
+                next = unsafe { page.next_free.load(Relaxed).as_mut() };
+            }
         }
     }
 
@@ -149,17 +149,15 @@ impl<T: Sized> SharedArena<T> {
     /// ```
     pub fn with_capacity(cap: usize) -> SharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
-        let free = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
+        let pending_free = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
 
-        let (mut first, _) = Page::make_list(npages, &free);
-        let first_ref = unsafe { first.as_mut() };
-
-        free.as_ref().store(first_ref, Relaxed);
+        let (first, _) = Page::make_list(npages, &pending_free);
 
         SharedArena {
             npages: AtomicUsize::new(npages),
-            free,
-            page_list: AtomicPtr::new(first_ref),
+            free: AtomicPtr::new(first.as_ptr()),
+            pending_free,
+            page_list: AtomicPtr::new(first.as_ptr()),
             writer: AtomicBool::new(false),
             shrinking: AtomicBool::new(false)
         }
@@ -376,9 +374,29 @@ impl<T: Sized> SharedArena<T> {
             return;
         }
 
-        let mut current: &AtomicPtr<Page<T>> = &*self.free;
+        let mut current: &AtomicPtr<Page<T>> = &self.free;
 
         let mut free_pages = vec![];
+
+        // We loop on the free list to get all pages that have 0 reference to
+        // them and remove them from the free list
+        while let Some(current_value) = unsafe { current.load(Relaxed).as_mut() } {
+            let next = &current_value.next_free;
+            let next_value = next.load(Relaxed);
+
+            if current_value.bitfield.load(Acquire) == !0 {
+                if current.compare_exchange(
+                    current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
+                ).is_err() {
+                    continue;
+                }
+                free_pages.push(current_value as *const _ as *mut Page<T>);
+            } else {
+                current = next;
+            }
+        }
+
+        let mut current: &AtomicPtr<Page<T>> = &self.pending_free;
 
         // We loop on the free list to get all pages that have 0 reference to
         // them and remove them from the free list
@@ -480,6 +498,14 @@ impl<T: Sized> SharedArena<T> {
             next = next_next;
         }
 
+        let mut next = self.pending_free.load(Relaxed);
+
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            let next_next = next_ref.next_free.load(Relaxed);
+            free += next_ref.bitfield.load(Relaxed).count_ones() as usize - 1;
+            next = next_next;
+        }
+
         let used = (self.npages.load(Relaxed) * BLOCK_PER_PAGE) - free;
 
         (used, free)
@@ -496,6 +522,12 @@ impl<T: Sized> SharedArena<T> {
 
         let mut next = self.free.load(Relaxed);
         let mut free = 0;
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            next = next_ref.next_free.load(Relaxed);
+            free += 1;
+        }
+
+        let mut next = self.pending_free.load(Relaxed);
         while let Some(next_ref) = unsafe { next.as_mut() } {
             next = next_ref.next_free.load(Relaxed);
             free += 1;

@@ -55,7 +55,7 @@ pub struct Page<T> {
     pub bitfield: CacheAligned<Bitfield>,
     /// Array of Block
     pub blocks: [Block<T>; BLOCK_PER_PAGE],
-    pub arena_free_list: Weak<AtomicPtr<Page<T>>>,
+    pub arena_pending_list: Weak<AtomicPtr<Page<T>>>,
     pub next_free: AtomicPtr<Page<T>>,
     pub next: AtomicPtr<Page<T>>,
     pub in_free_list: AtomicBool,
@@ -78,7 +78,7 @@ impl<T> Page<T> {
     }
 
     fn new(
-        arena_free_list: Weak<AtomicPtr<Page<T>>>,
+        arena_pending_list: Weak<AtomicPtr<Page<T>>>,
         next: *mut Page<T>
     ) -> NonNull<Page<T>>
     {
@@ -95,9 +95,9 @@ impl<T> Page<T> {
         page.next = AtomicPtr::new(next);
         page.in_free_list = AtomicBool::new(true);
 
-        let free_ptr = &mut page.arena_free_list as *mut Weak<AtomicPtr<Page<T>>>;
+        let pending_ptr = &mut page.arena_pending_list as *mut Weak<AtomicPtr<Page<T>>>;
         unsafe {
-            free_ptr.write(arena_free_list);
+            pending_ptr.write(arena_pending_list);
         }
 
         // initialize the blocks
@@ -114,17 +114,16 @@ impl<T> Page<T> {
     /// Returns the first and last Page in the list
     pub fn make_list(
         npages: usize,
-        arena_free_list: &Arc<AtomicPtr<Page<T>>>
+        arena_pending_list: &Arc<AtomicPtr<Page<T>>>
     ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
     {
-        let arena_free_list = Arc::downgrade(arena_free_list);
+        let arena_pending_list = Arc::downgrade(arena_pending_list);
 
-        let last = Page::<T>::new(arena_free_list.clone(), std::ptr::null_mut());
+        let last = Page::<T>::new(arena_pending_list.clone(), std::ptr::null_mut());
         let mut previous = last;
 
         for _ in 0..npages - 1 {
-            let previous_ptr = unsafe { previous.as_mut() };
-            let page = Page::<T>::new(arena_free_list.clone(), previous_ptr);
+            let page = Page::<T>::new(arena_pending_list.clone(), previous.as_ptr());
             previous = page;
         }
 
@@ -156,54 +155,58 @@ impl<T> Page<T> {
         }
     }
 
+    fn put_in_pending_list(&mut self) {
+        if self.in_free_list.swap(true, Acquire) {
+            // Another thread changed self.in_free_list
+            // We could use compare_exchange here but swap is faster
+            // 'lock cmpxchg' vs 'xchg' on x86
+            // For self reference:
+            // https://gpuopen.com/gdc-presentations/2019/gdc-2019-s2-amd-ryzen-processor-software-optimization.pdf
+            return;
+        }
+
+        let arena_pending_list = match self.arena_pending_list.upgrade() {
+            Some(ptr) => ptr,
+            _ => return // The arena has been dropped
+        };
+
+        let page_ptr = self as *mut Page<T>;
+        loop {
+            let current = arena_pending_list.load(Relaxed);
+            self.next_free.store(current, Relaxed);
+
+            if arena_pending_list.compare_exchange_weak(
+                current, page_ptr, AcqRel, Relaxed
+            ).is_ok() {
+                break;
+            }
+        }
+    }
+
     pub(super) fn drop_block(&mut self, block: &Block<T>) {
         unsafe {
             // Drop the inner value
             std::ptr::drop_in_place(block.value.get());
         }
 
-        let index_in_page = block.index_in_page;
+        if !self.in_free_list.load(Relaxed) {
+            self.put_in_pending_list();
+        }
 
-        // We set our bit to mark the block as free
-        let old_bitfield = self.bitfield.fetch_add(1 << index_in_page, AcqRel);
+        let bit = 1 << block.index_in_page;
 
-        let new_bitfield = old_bitfield | (1 << index_in_page);
+        // We set our bit to mark the block as free.
+        // fetch_add is faster than fetch_or (xadd vs cmpxchg), and
+        // we're sure to be the only thread to set this bit.
+        let old_bitfield = self.bitfield.fetch_add(bit, AcqRel);
 
-        // The bit dedicated to the Page is inversed (1 for used, 0 for free)
+        let new_bitfield = old_bitfield | bit;
+
+        // The bit dedicated to the Arena is inversed (1 for used, 0 for free)
         if !new_bitfield == MASK_ARENA_BIT {
             // We were the last block/arena referencing this page
             // Deallocate it
             self.deallocate();
-            return;
-        }
-
-        if !self.in_free_list.load(Relaxed) {
-            if self.in_free_list.swap(true, Acquire) {
-                // Another thread changed self.in_free_list
-                // We could use compare_exchange here but swap is faster
-                // 'lock cmpxchg' vs 'xchg' on x86
-                // For future reference:
-                // https://gpuopen.com/gdc-presentations/2019/gdc-2019-s2-amd-ryzen-processor-software-optimization.pdf
-                return
-            }
-
-            let arena_free_list = match self.arena_free_list.upgrade() {
-                Some(ptr) => ptr,
-                _ => return // The arena has been dropped
-            };
-
-            let page_ptr = self as *mut Page<T>;
-
-            loop {
-                let current = arena_free_list.load(Relaxed);
-                self.next_free.store(current, Relaxed);
-
-                if arena_free_list.compare_exchange_weak(
-                    current, page_ptr, AcqRel, Relaxed
-                ).is_ok() {
-                    break;
-                }
-            }
         }
     }
 }
@@ -213,8 +216,7 @@ impl<T> Drop for Page<T> {
         // We clear the bit dedicated to the arena
         let old_bitfield = self.bitfield.fetch_sub(MASK_ARENA_BIT, AcqRel);
 
-        // The bit dedicated to the arena is inversed (1 for used, 0 for free)
-        if old_bitfield == MASK_ARENA_BIT {
+        if !old_bitfield == 0 {
             // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
             self.deallocate();
         }

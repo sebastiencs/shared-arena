@@ -13,15 +13,16 @@ jobs:
         rust:
           - stable
           - beta
-        features:
-          - --all-features
-          - --no-default-features
-        exclude:
-          - rust: beta
-            features: --no-default-features
+          - nightly
+        # features:
+        #   - --all-features
+        #   - --no-default-features
+        # exclude:
+        #   - rust: beta
+        #     features: --no-default-features
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -32,12 +33,12 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --all-targets ${{ matrix.features }}
+          # args: --all-targets ${{ matrix.features }}
 
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: ${{ matrix.features }}
+          # args: ${{ matrix.features }}
 
   # lint:
   #   runs-on: ubuntu-latest
@@ -65,7 +66,7 @@ jobs:
   miri:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
 
       - uses: actions-rs/toolchain@v1
         with:

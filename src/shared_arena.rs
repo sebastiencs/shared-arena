@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering::*;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
 use std::sync::Arc;
 
-use super::page::{Block, Page, BLOCK_PER_PAGE};
+use super::page::{Block, Page, BLOCK_PER_PAGE, drop_page};
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
 
@@ -469,7 +469,8 @@ impl<T: Sized> SharedArena<T> {
 
         for page in to_drop.iter().rev() {
             // Invoke Page::drop
-            unsafe { std::ptr::drop_in_place(*page) }
+            drop_page(*page);
+            // unsafe { std::ptr::drop_in_place(*page) }
         }
 
         self.shrinking.store(false, Release);
@@ -565,10 +566,11 @@ impl<T> Drop for SharedArena<T> {
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let next_next = next_ref.next.load(Relaxed);
-            unsafe {
+            // unsafe {
                 // Invoke Page::drop
-                std::ptr::drop_in_place(next);
-            }
+                drop_page(next);
+                // std::ptr::drop_in_place(next);
+            // }
             next = next_next;
         }
     }

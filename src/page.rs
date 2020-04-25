@@ -218,15 +218,30 @@ impl<T> Page<T> {
     }
 }
 
+pub(super) fn drop_page<T>(page: *mut Page<T>) {
+    // We clear the bit dedicated to the arena
+    let old_bitfield = {
+        let page = unsafe { page.as_ref().unwrap() };
+        page.bitfield.fetch_sub(MASK_ARENA_BIT, AcqRel)
+    };
+
+    if !old_bitfield == 0 {
+        // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
+        deallocate_page(page);
+        // self.deallocate();
+    }
+}
+
 impl<T> Drop for Page<T> {
     fn drop(&mut self) {
-        // We clear the bit dedicated to the arena
-        let old_bitfield = self.bitfield.fetch_sub(MASK_ARENA_BIT, AcqRel);
+        panic!("PAGE");
+        // // We clear the bit dedicated to the arena
+        // let old_bitfield = self.bitfield.fetch_sub(MASK_ARENA_BIT, AcqRel);
 
-        if !old_bitfield == 0 {
-            // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
-            deallocate_page(self);
-            // self.deallocate();
-        }
+        // if !old_bitfield == 0 {
+        //     // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
+        //     deallocate_page(self);
+        //     // self.deallocate();
+        // }
     }
 }

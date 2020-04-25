@@ -36,8 +36,8 @@ use super::page::{Page, Block, MASK_ARENA_BIT};
 /// ```
 /// use shared_arena::{ArenaArc, SharedArena};
 ///
-/// let arena = shared_arena::new();
-/// let my_vec: ArenaArc<Vec<u8>> = arena::alloc_arc(Vec::new());
+/// let arena = SharedArena::new();
+/// let my_vec: ArenaArc<Vec<u8>> = arena.alloc_arc(Vec::new());
 ///
 /// assert!(my_vec.len() == 0);
 /// ```

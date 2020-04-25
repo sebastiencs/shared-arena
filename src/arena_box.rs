@@ -20,10 +20,10 @@ use super::page::{Page, Block};
 /// threads.
 ///
 /// ```
-/// use shared_arena::{ArenaBox, Arena};
+/// use shared_arena::{ArenaBox, SharedArena};
 ///
-/// let arena = Arena::new();
-/// let mut my_vec: ArenaBox<_> = arena::alloc(Vec::new());
+/// let arena = SharedArena::new();
+/// let mut my_vec: ArenaBox<_> = arena.alloc(Vec::new());
 ///
 /// my_vec.push(1);
 /// ```

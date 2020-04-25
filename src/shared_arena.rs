@@ -142,7 +142,7 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ## Example
     ///
-    /// ```
+    /// ```ignore
     /// use shared_arena::SharedArena;
     ///
     /// let arena = SharedArena::with_capacity(2048);
@@ -170,7 +170,7 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ## Example
     ///
-    /// ```
+    /// ```ignore
     /// use shared_arena::SharedArena;
     ///
     /// let arena = SharedArena::new();
@@ -185,7 +185,7 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::{ArenaBox, SharedArena};
     ///
     /// let arena = SharedArena::new();
     /// let my_num: ArenaBox<u8> = arena.alloc(0xFF);
@@ -226,13 +226,13 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::{ArenaBox, SharedArena};
     /// use std::ptr;
     ///
     /// #[derive(Copy, Clone)]
-    /// struct MyStruct { .. }
+    /// struct MyStruct { }
     ///
-    /// let ref_struct: &MyStruct = ..;
+    /// let ref_struct: &MyStruct = &MyStruct{};
     ///
     /// let arena = SharedArena::new();
     /// let my_struct: ArenaBox<MyStruct> = arena.alloc_in_place(|place| {
@@ -266,7 +266,7 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::{ArenaArc, SharedArena};
     ///
     /// let arena = SharedArena::new();
     /// let my_num: ArenaArc<u8> = arena.alloc_arc(0xFF);
@@ -307,13 +307,13 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
+    /// use shared_arena::{ArenaArc, SharedArena};
     /// use std::ptr;
     ///
     /// #[derive(Copy, Clone)]
-    /// struct MyStruct { .. }
+    /// struct MyStruct {}
     ///
-    /// let ref_struct: &MyStruct = ..;
+    /// let ref_struct: &MyStruct = &MyStruct {};
     ///
     /// let arena = SharedArena::new();
     /// let my_struct: ArenaArc<MyStruct> = arena.alloc_in_place_arc(|place| {
@@ -353,11 +353,11 @@ impl<T: Sized> SharedArena<T> {
     /// ```
     /// use shared_arena::SharedArena;
     ///
-    /// let arena = SharedArena::with_capacity(2048);
-    /// let values = Vec::new();
+    /// let mut arena = SharedArena::with_capacity(2048);
+    /// let mut values = Vec::new();
     ///
     /// let (used, free) = arena.stats();
-    /// assert!(used == 0, free == 2048)
+    /// assert!(used == 0, free == 2048);
     ///
     /// for _ in 0..80 {
     ///     values.push(arena.alloc(0xFF));
@@ -366,7 +366,7 @@ impl<T: Sized> SharedArena<T> {
     /// arena.shrink_to_fit();
     ///
     /// let (used, free) = arena.stats();
-    /// assert!(used == 80, free == 46)
+    /// assert!(used == 80, free == 46);
     ///
     /// ```
     pub fn shrink_to_fit(&self) {
@@ -484,7 +484,7 @@ impl<T: Sized> SharedArena<T> {
     /// use shared_arena::SharedArena;
     ///
     /// let arena = SharedArena::new();
-    /// arena.alloc(1);
+    /// let item = arena.alloc(1);
     /// let (used, free) = arena.stats();
     /// assert!(used == 1 && free == 62);
     /// ```

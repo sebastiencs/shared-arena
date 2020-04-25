@@ -6,39 +6,39 @@ on:
   pull_request:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - beta
-          - nightly
-        # features:
-        #   - --all-features
-        #   - --no-default-features
-        # exclude:
-        #   - rust: beta
-        #     features: --no-default-features
+  # test:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       rust:
+  #         - stable
+  #         - beta
+  #         - nightly
+  #       # features:
+  #       #   - --all-features
+  #       #   - --no-default-features
+  #       # exclude:
+  #       #   - rust: beta
+  #       #     features: --no-default-features
 
-    steps:
-      - uses: actions/checkout@v2
+  #   steps:
+  #     - uses: actions/checkout@v2
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         profile: minimal
+  #         toolchain: ${{ matrix.rust }}
+  #         override: true
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          # args: --all-targets ${{ matrix.features }}
+  #     - uses: actions-rs/cargo@v1
+  #       with:
+  #         command: build
+  #         # args: --all-targets ${{ matrix.features }}
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          # args: ${{ matrix.features }}
+  #     - uses: actions-rs/cargo@v1
+  #       with:
+  #         command: test
+  #         # args: ${{ matrix.features }}
 
   # lint:
   #   runs-on: ubuntu-latest

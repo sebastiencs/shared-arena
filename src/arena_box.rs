@@ -110,11 +110,7 @@ impl<T> std::ops::DerefMut for ArenaBox<T> {
 /// The value pointed by this ArenaBox is also dropped
 impl<T> Drop for ArenaBox<T> {
     fn drop(&mut self) {
-        let page = unsafe { self.page.as_mut() };
         let block = unsafe { self.block.as_ref() };
-        // let (page, block) = unsafe {
-        //     (self.page.as_mut(), self.block.as_ref())
-        // };
 
         // See ArenaBox<T>::new for why we touch the counter
 
@@ -125,6 +121,6 @@ impl<T> Drop for ArenaBox<T> {
 
         counter_ref.store(0, Relaxed);
 
-        page.drop_block(block);
+        Page::drop_block(self.page, self.block);
     }
 }

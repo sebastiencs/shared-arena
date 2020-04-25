@@ -77,13 +77,6 @@ impl<T> Page<T> {
         }
     }
 
-    pub fn deallocate(&mut self) {
-        let layout = Layout::new::<Page<T>>();
-        unsafe {
-            dealloc(self as *mut Page<T> as *mut u8, layout);
-        }
-    }
-
     fn new(
         arena_pending_list: Weak<AtomicPtr<Page<T>>>,
         next: *mut Page<T>
@@ -162,42 +155,40 @@ impl<T> Page<T> {
         }
     }
 
-    fn put_in_pending_list(&mut self) {
-        if self.in_free_list.swap(true, Acquire) {
-            // Another thread changed self.in_free_list
-            // We could use compare_exchange here but swap is faster
-            // 'lock cmpxchg' vs 'xchg' on x86
-            // For self reference:
-            // https://gpuopen.com/gdc-presentations/2019/gdc-2019-s2-amd-ryzen-processor-software-optimization.pdf
-            return;
-        }
+    pub(super) fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
+        let page_ptr = page.as_ptr();
+        let page = unsafe { page.as_mut() };
+        let block = unsafe { block.as_ref() };
 
-        let arena_pending_list = match self.arena_pending_list.upgrade() {
-            Some(ptr) => ptr,
-            _ => return // The arena has been dropped
-        };
-
-        let page_ptr = self as *mut Page<T>;
-        loop {
-            let current = arena_pending_list.load(Relaxed);
-            self.next_free.store(current, Relaxed);
-
-            if arena_pending_list.compare_exchange_weak(
-                current, page_ptr, AcqRel, Relaxed
-            ).is_ok() {
-                break;
-            }
-        }
-    }
-
-    pub(super) fn drop_block(&mut self, block: &Block<T>) {
         unsafe {
             // Drop the inner value
             std::ptr::drop_in_place(block.value.get());
         }
 
-        if !self.in_free_list.load(Relaxed) {
-            self.put_in_pending_list();
+        // Put our page in pending_free_list of the arena, if necessary
+        if !page.in_free_list.load(Relaxed) {
+            // Another thread might have changed self.in_free_list
+            // We could use compare_exchange here but swap is faster
+            // 'lock cmpxchg' vs 'xchg' on x86
+            // For self reference:
+            // https://gpuopen.com/gdc-presentations/2019/gdc-2019-s2-amd-ryzen-processor-software-optimization.pdf
+            if !page.in_free_list.swap(true, Acquire) {
+                let arena_pending_list = match page.arena_pending_list.upgrade() {
+                    Some(ptr) => ptr,
+                    _ => return // The arena has been dropped
+                };
+
+                loop {
+                    let current = arena_pending_list.load(Relaxed);
+                    page.next_free.store(current, Relaxed);
+
+                    if arena_pending_list.compare_exchange(
+                        current, page_ptr, AcqRel, Relaxed
+                    ).is_ok() {
+                        break;
+                    }
+                }
+            }
         }
 
         let bit = 1 << block.index_in_page;
@@ -205,7 +196,7 @@ impl<T> Page<T> {
         // We set our bit to mark the block as free.
         // fetch_add is faster than fetch_or (xadd vs cmpxchg), and
         // we're sure to be the only thread to set this bit.
-        let old_bitfield = self.bitfield.fetch_add(bit, AcqRel);
+        let old_bitfield = page.bitfield.fetch_add(bit, AcqRel);
 
         let new_bitfield = old_bitfield | bit;
 
@@ -213,7 +204,7 @@ impl<T> Page<T> {
         if !new_bitfield == MASK_ARENA_BIT {
             // We were the last block/arena referencing this page
             // Deallocate it
-            self.deallocate();
+            deallocate_page(page);
         }
     }
 }
@@ -228,20 +219,11 @@ pub(super) fn drop_page<T>(page: *mut Page<T>) {
     if !old_bitfield == 0 {
         // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
         deallocate_page(page);
-        // self.deallocate();
     }
 }
 
 impl<T> Drop for Page<T> {
     fn drop(&mut self) {
         panic!("PAGE");
-        // // We clear the bit dedicated to the arena
-        // let old_bitfield = self.bitfield.fetch_sub(MASK_ARENA_BIT, AcqRel);
-
-        // if !old_bitfield == 0 {
-        //     // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
-        //     deallocate_page(self);
-        //     // self.deallocate();
-        // }
     }
 }

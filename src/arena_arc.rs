@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
-use super::page::{Page, Block, MASK_ARENA_BIT};
+use super::page::{Page, Block};
 
 /// A reference-counting pointer to `T` in the arena
 ///
@@ -120,16 +120,14 @@ impl<T> std::ops::Deref for ArenaArc<T> {
 /// also dropped
 impl<T> Drop for ArenaArc<T> {
     fn drop(&mut self) {
-        let (page, block) = unsafe {
-            (self.page.as_mut(), self.block.as_ref())
-        };
+        let block = unsafe { self.block.as_ref() };
 
         // We decrement the reference counter
         let count = block.counter.fetch_sub(1, AcqRel);
 
         // We were the last reference
         if count == 1 {
-            page.drop_block(block);
+            Page::drop_block(self.page, self.block);
         };
     }
 }

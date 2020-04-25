@@ -537,6 +537,7 @@ impl<T: Sized> SharedArena<T> {
         (size, free)
     }
 
+    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) fn display_list(&self) {
         let mut full = vec![];

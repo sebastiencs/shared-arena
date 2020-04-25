@@ -61,6 +61,13 @@ pub struct Page<T> {
     pub in_free_list: AtomicBool,
 }
 
+fn deallocate_page<T>(page: *mut Page<T>) {
+    let layout = Layout::new::<Page<T>>();
+    unsafe {
+        dealloc(page as *mut Page<T> as *mut u8, layout);
+    }
+}
+
 impl<T> Page<T> {
     fn allocate() -> NonNull<Page<T>> {
         let layout = Layout::new::<Page<T>>();
@@ -218,7 +225,8 @@ impl<T> Drop for Page<T> {
 
         if !old_bitfield == 0 {
             // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
-            self.deallocate();
+            deallocate_page(self);
+            // self.deallocate();
         }
     }
 }

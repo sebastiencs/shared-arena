@@ -102,7 +102,7 @@ jobs:
           profile: minimal
 
       - name: Run benchmark
-        run: cargo bench -- --noplot --output-format bencher | grep --line-buffered test | cat
+        run: cargo bench -- --noplot --output-format bencher | grep --line-buffered test | tee output.txt
 
       - name: Store benchmark result
         uses: rhysd/github-action-benchmark@v1

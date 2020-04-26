@@ -340,7 +340,7 @@ criterion_group!{
     config = Criterion::default()
         .with_plots()
         .warm_up_time(std::time::Duration::from_millis(100))
-        // .measurement_time(std::time::Duration::from_secs(1))
+        .measurement_time(std::time::Duration::from_secs(10))
         .sample_size(50);
     targets = criterion_benchmark
 }

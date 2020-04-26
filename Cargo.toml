@@ -16,7 +16,7 @@ debug = true
 debug = true
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = { git = "git://github.com/bheisler/criterion.rs" }
 
 [[bench]]
 name = "mempool"

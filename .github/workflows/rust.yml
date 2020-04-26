@@ -4,6 +4,7 @@ on: [push, pull_request]
 
 jobs:
   test:
+    name: Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -53,6 +54,7 @@ jobs:
   #         args: --all-features -- -D warnings
 
   grcov:
+    name: Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -87,7 +89,7 @@ jobs:
           # fail_ci_if_error: true # optional (default = false)
 
   benchmark:
-    name: Run benchmark
+    name: Benchmark
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -100,7 +102,7 @@ jobs:
           profile: minimal
 
       - name: Run benchmark
-        run: cargo bench -- --noplot --output-format bencher | tee output.txt
+        run: cargo bench -- --noplot --output-format bencher | grep --line-buffered test | cat
 
       - name: Store benchmark result
         uses: rhysd/github-action-benchmark@v1
@@ -116,6 +118,7 @@ jobs:
           fail-on-alert: true
 
   miri:
+    name: Miri
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2

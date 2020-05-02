@@ -746,4 +746,26 @@ mod tests {
         let a = arena.alloc_arc(104);
         assert!(*a == 104);
     }
+
+    #[test]
+    fn drop_arena_with_valid_allocated() {
+        let (a, b, c, d) = {
+            let arena = super::SharedArena::<usize>::new();
+
+            use std::ptr;
+
+            let a = arena.alloc_in_place(|place| unsafe {
+                ptr::copy(&101, place.as_mut_ptr(), 1);
+            });
+            let b = arena.alloc_in_place_arc(|place| unsafe {
+                ptr::copy(&102, place.as_mut_ptr(), 1);
+            });
+            let c = arena.alloc(103);
+            let d = arena.alloc_arc(104);
+
+            (a, b, c, d)
+        };
+
+        assert_eq!((*a, *b, *c, *d), (101, 102, 103, 104))
+    }
 }

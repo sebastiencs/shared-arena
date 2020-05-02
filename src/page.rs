@@ -173,19 +173,16 @@ impl<T> Page<T> {
             // For self reference:
             // https://gpuopen.com/gdc-presentations/2019/gdc-2019-s2-amd-ryzen-processor-software-optimization.pdf
             if !page.in_free_list.swap(true, Acquire) {
-                let arena_pending_list = match page.arena_pending_list.upgrade() {
-                    Some(ptr) => ptr,
-                    _ => return // The arena has been dropped
-                };
+                if let Some(arena_pending_list) = page.arena_pending_list.upgrade() {
+                    loop {
+                        let current = arena_pending_list.load(Relaxed);
+                        page.next_free.store(current, Relaxed);
 
-                loop {
-                    let current = arena_pending_list.load(Relaxed);
-                    page.next_free.store(current, Relaxed);
-
-                    if arena_pending_list.compare_exchange(
-                        current, page_ptr, AcqRel, Relaxed
-                    ).is_ok() {
-                        break;
+                        if arena_pending_list.compare_exchange(
+                            current, page_ptr, AcqRel, Relaxed
+                        ).is_ok() {
+                            break;
+                        }
                     }
                 }
             }

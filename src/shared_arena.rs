@@ -768,4 +768,41 @@ mod tests {
 
         assert_eq!((*a, *b, *c, *d), (101, 102, 103, 104))
     }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn arena_with_threads() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let arena = Arc::new(super::SharedArena::<usize>::new());
+
+        let mut values = Vec::with_capacity(126);
+        for _ in 0..63 {
+            values.push(arena.alloc(1));
+        }
+
+        let mut handles = Vec::with_capacity(2);
+        let barrier = Arc::new(Barrier::new(2));
+
+        for _ in 0..2 {
+            let c = barrier.clone();
+            let arena = arena.clone();
+            handles.push(thread::spawn(move|| {
+                c.wait();
+
+                let mut values = Vec::with_capacity(126);
+                for _ in 0..1024 * 64 {
+                    values.push(arena.alloc(1));
+                }
+
+                println!("after wait");
+            }));
+        }
+
+        // Wait for other threads to finish.
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
 }

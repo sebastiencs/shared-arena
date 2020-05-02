@@ -723,4 +723,27 @@ mod tests {
         values.push(arena.alloc(1));
         assert_eq!(arena.size_lists(), (2, 1));
     }
+
+    #[test]
+    fn alloc_fns() {
+        let arena = super::SharedArena::<usize>::new();
+
+        use std::ptr;
+
+        let a = arena.alloc_in_place(|place| unsafe {
+            ptr::copy(&101, place.as_mut_ptr(), 1);
+        });
+        *a == 101;
+
+        let a = arena.alloc_in_place_arc(|place| unsafe {
+            ptr::copy(&102, place.as_mut_ptr(), 1);
+        });
+        *a == 102;
+
+        let a = arena.alloc(103);
+        *a == 103;
+
+        let a = arena.alloc_arc(104);
+        *a == 104;
+    }
 }

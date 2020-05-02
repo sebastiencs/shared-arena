@@ -201,7 +201,7 @@ impl<T> Page<T> {
         if !new_bitfield == MASK_ARENA_BIT {
             // We were the last block/arena referencing this page
             // Deallocate it
-            deallocate_page(page);
+            deallocate_page(page_ptr);
         }
     }
 }

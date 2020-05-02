@@ -387,10 +387,9 @@ impl<T: Sized> SharedArena<T> {
             if current_value.bitfield.load(Acquire) == !0 {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
-                ).is_err() {
-                    continue;
+                ).is_ok() {
+                    free_pages.push(current_value as *const _ as *mut Page<T>);
                 }
-                free_pages.push(current_value as *const _ as *mut Page<T>);
             } else {
                 current = next;
             }
@@ -398,8 +397,8 @@ impl<T: Sized> SharedArena<T> {
 
         let mut current: &AtomicPtr<Page<T>> = &self.pending_free_list;
 
-        // We loop on the free list to get all pages that have 0 reference to
-        // them and remove them from the free list
+        // We loop on the pending list to get all pages that have 0 reference to
+        // them and remove them from the list
         while let Some(current_value) = unsafe { current.load(Relaxed).as_mut() } {
             let next = &current_value.next_free;
             let next_value = next.load(Relaxed);
@@ -407,10 +406,9 @@ impl<T: Sized> SharedArena<T> {
             if current_value.bitfield.load(Acquire) == !0 {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
-                ).is_err() {
-                    continue;
+                ).is_ok() {
+                    free_pages.push(current_value as *const _ as *mut Page<T>);
                 }
-                free_pages.push(current_value as *const _ as *mut Page<T>);
             } else {
                 current = next;
             }
@@ -458,7 +456,7 @@ impl<T: Sized> SharedArena<T> {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).is_err() {
-                    continue;
+                    panic!("Something went wrong in shrinking.");
                 }
             } else {
                 current = next;
@@ -701,7 +699,28 @@ mod tests {
         arena.shrink_to_fit();
         assert_eq!(arena.size_lists(), (0, 0));
 
-        let _a = arena.alloc(1);
+        {
+            let _a = arena.alloc(1);
+            assert_eq!(arena.size_lists(), (1, 1));
+
+            println!("{:?}", arena);
+            arena.display_list();
+        }
+
         assert_eq!(arena.size_lists(), (1, 1));
+        arena.shrink_to_fit();
+        assert_eq!(arena.size_lists(), (0, 0));
+
+        let mut values = Vec::with_capacity(126);
+        for _ in 0..126 {
+            values.push(arena.alloc(1));
+        }
+        assert_eq!(arena.size_lists(), (2, 1));
+
+        values.remove(0);
+        assert_eq!(arena.size_lists(), (2, 2));
+
+        values.push(arena.alloc(1));
+        assert_eq!(arena.size_lists(), (2, 1));
     }
 }

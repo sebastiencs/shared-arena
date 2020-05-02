@@ -733,17 +733,17 @@ mod tests {
         let a = arena.alloc_in_place(|place| unsafe {
             ptr::copy(&101, place.as_mut_ptr(), 1);
         });
-        *a == 101;
+        assert!(*a == 101);
 
         let a = arena.alloc_in_place_arc(|place| unsafe {
             ptr::copy(&102, place.as_mut_ptr(), 1);
         });
-        *a == 102;
+        assert!(*a == 102);
 
         let a = arena.alloc(103);
-        *a == 103;
+        assert!(*a == 103);
 
         let a = arena.alloc_arc(104);
-        *a == 104;
+        assert!(*a == 104);
     }
 }

@@ -437,22 +437,17 @@ impl<T: Sized> SharedArena<T> {
             }
         }
 
-        let mut ndrop = 0;
-
         for page in &to_drop {
             let page_ref = unsafe { page.as_ref().unwrap() };
 
-            if page_ref.bitfield.load(Acquire) == !0 {
-                ndrop += 1;
-                drop_page(*page);
-            } else {
-                page_ref.in_free_list.store(false, Release);
-            }
+            assert!(page_ref.bitfield.load(Acquire) == !0);
+
+            drop_page(*page);
         }
         let old = self.free_list.swap(start.load(Relaxed), Release);
         assert!(old.is_null(), "OLD NOT NULL");
 
-        self.npages.fetch_sub(ndrop, Release);
+        self.npages.fetch_sub(to_drop.len(), Release);
 
         self.shrinking.store(false, Release);
 

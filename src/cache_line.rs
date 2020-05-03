@@ -58,3 +58,27 @@ impl<T: Sized> std::ops::DerefMut for CacheAligned<T> {
         &mut self.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CacheAligned;
+
+    #[test]
+    fn test_cached_aligned() {
+        let var = CacheAligned::new(1);
+        assert!(*var == 1);
+    }
+
+    #[test]
+    fn test_cached_aligned_mut() {
+        let mut var = CacheAligned::new(1);
+        *var += 1;
+        assert!(*var == 2);
+    }
+
+    #[test]
+    fn test_cached_aligned_clone() {
+        let var = CacheAligned::new(10);
+        assert!(*var == 10 && *var.clone() == 10);
+    }
+}

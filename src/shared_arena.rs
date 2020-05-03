@@ -69,7 +69,8 @@ impl<T: Sized> SharedArena<T> {
         let current = self.free_list.load(Relaxed);
         assert!(current.is_null(), "Arena.free isn't null");
 
-        self.free_list.swap(first_ptr, AcqRel);
+        let old = self.free_list.swap(first_ptr, AcqRel);
+        assert!(old.is_null(), "Arena.free2 isn't null");
 
         self.npages.fetch_add(to_allocate, Relaxed);
     }
@@ -83,19 +84,22 @@ impl<T: Sized> SharedArena<T> {
                 }
 
                 // No free block on the page, we remove it from the free list
-                let next = page.next_free.load(Relaxed);
-                self.free_list.store(next, Release);
 
-                // The page might be not full anymore since the call to
-                // acquire_free_block but that's fine because drops of
-                // an ArenaBox/Arc on that page will insert the page on
-                // self.pending_free.
-                page.in_free_list.store(false, Release);
+                let next = page.next_free.load(Acquire);
+                if self.free_list.compare_exchange(page, next, AcqRel, Relaxed).is_ok() {
+                    // The page might be not full anymore since the call to
+                    // acquire_free_block but that's fine because drops of
+                    // an ArenaBox/Arc on that page will insert the page on
+                    // self.pending_free.
+                    // page.in_free_list.store(false, Release);
+
+                    page.in_free_list.store(false, Release);
+                }
             }
 
             // TODO: See how to reduce branches here
             if let Some(_guard) = WriterGuard::new(&self.writer) {
-                if self.free_list.load(Relaxed).is_null() {
+                if self.free_list.load(Acquire).is_null() {
                     // A single and only thread run this code at a time.
 
                     let pending = self.pending_free_list.load(Relaxed);
@@ -103,7 +107,8 @@ impl<T: Sized> SharedArena<T> {
                         // Move self.pending_free to self.free.
 
                         let pending = self.pending_free_list.swap(std::ptr::null_mut(), AcqRel);
-                        self.free_list.store(pending, Release);
+                        let old = self.free_list.swap(pending, Release);
+                        assert!(old.is_null(), "NOT NULL");
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
 
@@ -774,6 +779,16 @@ mod tests {
     fn arena_with_threads() {
         use std::sync::{Arc, Barrier};
         use std::thread;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        fn get_random_number(max: usize) -> usize {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos() as usize;
+
+            nanos % max
+        }
 
         let arena = Arc::new(super::SharedArena::<usize>::new());
 
@@ -782,25 +797,29 @@ mod tests {
             values.push(arena.alloc(1));
         }
 
-        let mut handles = Vec::with_capacity(2);
-        let barrier = Arc::new(Barrier::new(2));
+        const NTHREADS: usize = 12;
+        const NALLOCS: usize = 1024 * 128;
 
-        for _ in 0..2 {
+        let mut handles = Vec::with_capacity(NTHREADS);
+        let barrier = Arc::new(Barrier::new(NTHREADS));
+
+        for _ in 0..NTHREADS {
             let c = barrier.clone();
             let arena = arena.clone();
             handles.push(thread::spawn(move|| {
                 c.wait();
 
-                let mut values = Vec::with_capacity(126);
-                for _ in 0..1024 * 64 {
+                let mut values = Vec::with_capacity(NALLOCS);
+                for i in 0..(NALLOCS) {
                     values.push(arena.alloc(1));
+                    if (i + 1) % 5 == 0 {
+                        let n = get_random_number(values.len());
+                        values.remove(n);
+                    }
                 }
-
-                println!("after wait");
             }));
         }
 
-        // Wait for other threads to finish.
         for handle in handles {
             handle.join().unwrap();
         }

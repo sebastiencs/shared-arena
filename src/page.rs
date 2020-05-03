@@ -61,6 +61,15 @@ pub struct Page<T> {
     pub in_free_list: AtomicBool,
 }
 
+impl<T> std::fmt::Debug for Page<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Page")
+         .field("next_free", &self.next_free.load(Relaxed))
+         .field("next", &self.next.load(Relaxed))
+         .finish()
+    }
+}
+
 fn deallocate_page<T>(page: *mut Page<T>) {
     let layout = Layout::new::<Page<T>>();
     unsafe {

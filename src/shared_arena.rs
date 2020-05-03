@@ -388,9 +388,9 @@ impl<T: Sized> SharedArena<T> {
     /// assert!(used == 80, free == 46);
     ///
     /// ```
-    pub fn shrink_to_fit(&self) {
+    pub fn shrink_to_fit(&self) -> bool {
         if self.shrinking.swap(true, AcqRel) {
-            return;
+            return false;
         }
 
         let _guard = WriterGuard::new_blocking(&self.writer);
@@ -455,6 +455,8 @@ impl<T: Sized> SharedArena<T> {
         self.npages.fetch_sub(ndrop, Release);
 
         self.shrinking.store(false, Release);
+
+        return true;
     }
 
     /// Returns a tuple of non-free and free spaces in the arena
@@ -820,6 +822,16 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn arena_with_threads() {
+        test_with_threads(12, 1024 * 64, false);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn arena_with_threads_and_shrinks() {
+        test_with_threads(12, 1024 * 4, true);
+    }
+
+    fn test_with_threads(nthreads: usize, nallocs: usize, with_shrink: bool) {
         use std::sync::{Arc, Barrier};
         use std::thread;
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -840,13 +852,10 @@ mod tests {
             values.push(arena.alloc(1));
         }
 
-        const NTHREADS: usize = 12;
-        const NALLOCS: usize = 1024 * 8;
+        let mut handles = Vec::with_capacity(nthreads);
+        let barrier = Arc::new(Barrier::new(nthreads));
 
-        let mut handles = Vec::with_capacity(NTHREADS);
-        let barrier = Arc::new(Barrier::new(NTHREADS));
-
-        for _ in 0..NTHREADS {
+        for _ in 0..nthreads {
             let c = barrier.clone();
             let arena = arena.clone();
             handles.push(thread::spawn(move|| {
@@ -854,17 +863,23 @@ mod tests {
 
                 arena.shrink_to_fit();
 
-                let mut values = Vec::with_capacity(NALLOCS);
-                for i in 0..(NALLOCS) {
+                let mut nshrink = 0;
+
+                let mut values = Vec::with_capacity(nallocs);
+                for i in 0..(nallocs) {
                     values.push(arena.alloc(1));
                     let rand = get_random_number(values.len());
                     if (i + 1) % 5 == 0 {
                         values.remove(rand);
                     }
-                    if rand % 200 == 0 {
-                        arena.shrink_to_fit();
+                    if with_shrink && rand % 200 == 0 {
+                        if arena.shrink_to_fit() {
+                            nshrink += 1;
+                        }
                     }
                 }
+
+                println!("NSHRINK: {}", nshrink);
             }));
         }
 

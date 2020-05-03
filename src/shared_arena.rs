@@ -494,7 +494,7 @@ impl<T: Sized> SharedArena<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn size_lists(&self) -> (usize, usize) {
+    pub(crate) fn size_lists(&self) -> (usize, usize, usize) {
         let mut next = self.full_list.load(Relaxed);
         let mut size = 0;
         while let Some(next_ref) = unsafe { next.as_mut() } {
@@ -510,12 +510,13 @@ impl<T: Sized> SharedArena<T> {
         }
 
         let mut next = self.pending_free_list.load(Relaxed);
+        let mut pending = 0;
         while let Some(next_ref) = unsafe { next.as_mut() } {
             next = next_ref.next_free.load(Relaxed);
-            free += 1;
+            pending += 1;
         }
 
-        (size, free)
+        (size, free, pending)
     }
 
     #[allow(dead_code)]
@@ -643,69 +644,133 @@ mod tests {
         assert_eq!(arena.stats(), (2, 61));
     }
 
-    // #[test]
+    #[test]
     fn arena_size() {
         let arena = super::SharedArena::<usize>::with_capacity(1000);
 
-        assert_eq!(arena.size_lists(), (16, 16));
+        assert_eq!(arena.size_lists(), (16, 16, 0));
         let a = arena.alloc(1);
-        assert_eq!(arena.size_lists(), (16, 16));
+        assert_eq!(arena.size_lists(), (16, 16, 0));
 
         let mut values = Vec::with_capacity(539);
         for _ in 0..539 {
             values.push(arena.alloc(1));
         }
-        assert_eq!(arena.size_lists(), (16, 8));
+        assert_eq!(arena.size_lists(), (16, 8, 0));
 
         arena.shrink_to_fit();
 
-        assert_eq!(arena.size_lists(), (9, 1));
+        assert_eq!(arena.size_lists(), (9, 1, 0));
 
         values.truncate(503);
         arena.shrink_to_fit();
 
-        assert_eq!(arena.size_lists(), (8, 0));
+        assert_eq!(arena.size_lists(), (8, 0, 0));
 
         std::mem::drop(a);
         for _ in 0..62 {
             values.remove(0);
         }
 
-        assert_eq!(arena.size_lists(), (8, 1));
+        assert_eq!(arena.size_lists(), (8, 0, 1));
 
         arena.shrink_to_fit();
-        assert_eq!(arena.size_lists(), (7, 0));
+        assert_eq!(arena.size_lists(), (8, 0, 1));
 
         values.clear();
-        assert_eq!(arena.size_lists(), (7, 7));
+        assert_eq!(arena.size_lists(), (8, 0, 8));
 
         arena.shrink_to_fit();
-        assert_eq!(arena.size_lists(), (0, 0));
+        assert_eq!(arena.size_lists(), (8, 0, 8));
 
         {
             let _a = arena.alloc(1);
-            assert_eq!(arena.size_lists(), (1, 1));
+            assert_eq!(arena.size_lists(), (8, 8, 0));
 
             println!("{:?}", arena);
             arena.display_list();
         }
 
-        assert_eq!(arena.size_lists(), (1, 1));
+        assert_eq!(arena.size_lists(), (8, 8, 0));
         arena.shrink_to_fit();
-        assert_eq!(arena.size_lists(), (0, 0));
+        assert_eq!(arena.size_lists(), (0, 0, 0));
 
         let mut values = Vec::with_capacity(126);
         for _ in 0..126 {
             values.push(arena.alloc(1));
         }
-        assert_eq!(arena.size_lists(), (2, 1));
+        assert_eq!(arena.size_lists(), (2, 1, 0));
 
         values.remove(0);
-        assert_eq!(arena.size_lists(), (2, 2));
+        assert_eq!(arena.size_lists(), (2, 1, 1));
 
         values.push(arena.alloc(1));
-        assert_eq!(arena.size_lists(), (2, 1));
+        assert_eq!(arena.size_lists(), (2, 1, 0));
     }
+
+    // // #[test]
+    // fn arena_size() {
+    //     let arena = super::SharedArena::<usize>::with_capacity(1000);
+
+    //     assert_eq!(arena.size_lists(), (16, 16));
+    //     let a = arena.alloc(1);
+    //     assert_eq!(arena.size_lists(), (16, 16));
+
+    //     let mut values = Vec::with_capacity(539);
+    //     for _ in 0..539 {
+    //         values.push(arena.alloc(1));
+    //     }
+    //     assert_eq!(arena.size_lists(), (16, 8));
+
+    //     arena.shrink_to_fit();
+
+    //     assert_eq!(arena.size_lists(), (9, 1));
+
+    //     values.truncate(503);
+    //     arena.shrink_to_fit();
+
+    //     assert_eq!(arena.size_lists(), (8, 0));
+
+    //     std::mem::drop(a);
+    //     for _ in 0..62 {
+    //         values.remove(0);
+    //     }
+
+    //     assert_eq!(arena.size_lists(), (8, 1));
+
+    //     arena.shrink_to_fit();
+    //     assert_eq!(arena.size_lists(), (7, 0));
+
+    //     values.clear();
+    //     assert_eq!(arena.size_lists(), (7, 7));
+
+    //     arena.shrink_to_fit();
+    //     assert_eq!(arena.size_lists(), (0, 0));
+
+    //     {
+    //         let _a = arena.alloc(1);
+    //         assert_eq!(arena.size_lists(), (1, 1));
+
+    //         println!("{:?}", arena);
+    //         arena.display_list();
+    //     }
+
+    //     assert_eq!(arena.size_lists(), (1, 1));
+    //     arena.shrink_to_fit();
+    //     assert_eq!(arena.size_lists(), (0, 0));
+
+    //     let mut values = Vec::with_capacity(126);
+    //     for _ in 0..126 {
+    //         values.push(arena.alloc(1));
+    //     }
+    //     assert_eq!(arena.size_lists(), (2, 1));
+
+    //     values.remove(0);
+    //     assert_eq!(arena.size_lists(), (2, 2));
+
+    //     values.push(arena.alloc(1));
+    //     assert_eq!(arena.size_lists(), (2, 1));
+    // }
 
     #[test]
     fn alloc_fns() {

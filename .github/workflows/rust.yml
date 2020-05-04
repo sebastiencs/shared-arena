@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   test:
-    name: Tests
+    name: Build & Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -83,6 +83,7 @@ jobs:
         uses: actions-rs/grcov@v0.1
 
       - uses: codecov/codecov-action@v1
+        name: Upload to codecov.io
         with:
           token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
           file: ${{ steps.coverage.outputs.report }}
@@ -126,7 +127,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - uses: actions-rs/toolchain@v1
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: nightly
@@ -134,13 +136,49 @@ jobs:
           components: miri, rust-src
 
       - uses: actions-rs/cargo@v1
+        name: Setup Miri
         with:
           command: miri
           args: setup
 
       - uses: actions-rs/cargo@v1
+        name: Execute Miri
         with:
           command: miri
           # Ignore leaks because of AtomicPtr:
           # https://github.com/rust-lang/miri/issues/1318
           args: test --all-features -- -Zmiri-ignore-leaks
+
+  build:
+    name: Build Cross Platforms
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - arm-linux-androideabi
+          - armv7-linux-androideabi
+          - arm-unknown-linux-gnueabihf
+          - armv7-unknown-linux-gnueabihf
+          - powerpc64-unknown-linux-gnu
+          - aarch64-linux-android
+          - x86_64-pc-windows-gnu
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-gnu
+          - i686-pc-windows-msvc
+          - i686-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        name: Install toolchain
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - uses: actions-rs/cargo@v1
+        name: Build
+        with:
+          use-cross: true
+          command: build
+          args: --release --target=${{ matrix.target }}

@@ -840,7 +840,7 @@ mod tests {
             nanos % max
         }
 
-        let arena = Arc::new(super::SharedArena::<usize>::new());
+        let arena = Arc::new(super::SharedArena::<usize>::default());
 
         let mut values = Vec::with_capacity(126);
         for _ in 0..63 {

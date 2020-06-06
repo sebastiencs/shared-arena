@@ -38,10 +38,10 @@ pub struct Block<T> {
     /// It's a tagged pointer on 64 bits architectures.
     /// Contains:
     ///   - Pointer to page
-    ///   - Index in page
+    ///   - Index of the block in page
     ///   - PageKind
-    /// Read only and initialized on Page creation
-    /// Doesn't need to be atomic
+    /// Read only and initialized on Page creation.
+    /// Doesn't need to be atomic.
     page: PageTaggedPtr,
 }
 
@@ -61,12 +61,21 @@ impl<T> Block<T> {
     }
 }
 
+#[cfg(target_pointer_width = "64")]
 #[derive(Copy, Clone)]
 struct PageTaggedPtr {
     pub data: usize
 }
 
+#[cfg(not(target_pointer_width = "64"))]
+#[derive(Copy, Clone)]
+struct PageTaggedPtr {
+    ptr: usize,
+    data: usize
+}
+
 impl std::fmt::Debug for PageTaggedPtr {
+    #[cfg(target_pointer_width = "64")]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PageTaggedPtr")
          .field("data    ", &format!("{:064b}", self.data))
@@ -75,10 +84,39 @@ impl std::fmt::Debug for PageTaggedPtr {
          .field("page_index_block", &format!("{:08b} ({})", self.index_block(), self.index_block()))
          .finish()
     }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PageTaggedPtr")
+         .field("page_ptr", &format!("{:032b}", self.page_ptr::<usize>().as_ptr() as usize))
+         .field("data    ", &format!("{:032b}", self.data))
+         .field("page_kind", &self.page_kind())
+         .field("page_index_block", &format!("{:08b} ({})", self.index_block(), self.index_block()))
+         .finish()
+    }
 }
 
 impl PageTaggedPtr {
+    #[cfg(target_pointer_width = "64")]
     fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
+        let tag = Self::make_tag(index, kind);
+
+        PageTaggedPtr {
+            data: (page_ptr & !(0b1111111 << 57)) | (tag << 57)
+        }
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
+        let tag = Self::make_tag(index, kind);
+
+        PageTaggedPtr {
+            ptr: page_ptr,
+            data: tag
+        }
+    }
+
+    fn make_tag(index: usize, kind: PageKind) -> usize {
         let kind: usize = kind.into();
         // Index is 6 bits at most
         // Kind is 1 bit
@@ -86,23 +124,32 @@ impl PageTaggedPtr {
         // Tag is 7 bits
         let tag = kind | index;
 
-        PageTaggedPtr {
-            data: (page_ptr & !(0b1111111 << 57)) | (tag << 57)
-        }
+        tag
     }
 
+    #[cfg(target_pointer_width = "64")]
     fn page_ptr<T>(self) -> NonNull<T> {
         let ptr = ((self.data << 7) as isize >> 7) as *mut T;
-
         NonNull::new(ptr).unwrap()
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn page_ptr<T>(self) -> NonNull<T> {
+        NonNull::new(self.ptr as *mut T).unwrap()
     }
 
     fn page_kind(self) -> PageKind {
         PageKind::from(self)
     }
 
+    #[cfg(target_pointer_width = "64") ]
     fn index_block(self) -> usize {
         (self.data >> 57) & 0b111111
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn index_block(self) -> usize {
+        self.data & 0b111111
     }
 }
 
@@ -113,8 +160,18 @@ enum PageKind {
 }
 
 impl From<PageTaggedPtr> for PageKind {
+    #[cfg(target_pointer_width = "64")]
     fn from(source: PageTaggedPtr) -> Self {
         if (source.data >> 63) == 0 {
+            PageKind::PageSharedArena
+        } else {
+            PageKind::PageArena
+        }
+    }
+
+    #[cfg(not(target_pointer_width = "64"))]
+    fn from(source: PageTaggedPtr) -> Self {
+        if (source.data >> 6) == 0 {
             PageKind::PageSharedArena
         } else {
             PageKind::PageArena

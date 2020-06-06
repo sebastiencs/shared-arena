@@ -493,6 +493,7 @@ impl<T: Sized> SharedArena<T> {
         (used, free)
     }
 
+    #[cfg(target_pointer_width = "64") ]
     #[cfg(test)]
     pub(crate) fn size_lists(&self) -> (usize, usize, usize) {
         let mut next = self.full_list.load(Relaxed);
@@ -610,6 +611,7 @@ impl<T> std::fmt::Debug for SharedArena<T> {
 mod tests {
     use super::SharedArena;
 
+    #[cfg(target_pointer_width = "64") ]
     #[test]
     fn arena_shrink() {
         let arena = SharedArena::<usize>::with_capacity(1000);
@@ -618,6 +620,7 @@ mod tests {
         assert_eq!(arena.stats(), (0, 0));
     }
 
+    #[cfg(target_pointer_width = "64") ]
     #[test]
     fn arena_shrink2() {
         let arena = SharedArena::<usize>::with_capacity(1000);
@@ -646,6 +649,7 @@ mod tests {
         assert_eq!(arena.stats(), (2, 61));
     }
 
+    #[cfg(target_pointer_width = "64") ]
     #[test]
     fn arena_size() {
         let arena = SharedArena::<usize>::with_capacity(1000);

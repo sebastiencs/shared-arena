@@ -372,6 +372,12 @@ impl<T: Sized> Pool<T> {
     }
 }
 
+impl<T> Default for Pool<T> {
+    fn default() -> Self {
+        Pool::new()
+    }
+}
+
 impl<T> Drop for Pool<T> {
     fn drop(&mut self) {
         let mut next = self.page_list.get();

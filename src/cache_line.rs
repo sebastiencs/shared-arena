@@ -32,6 +32,7 @@
 pub struct CacheAligned<T: Sized>(T);
 
 impl<T> CacheAligned<T> {
+    #[allow(dead_code)]
     pub fn new(v: T) -> CacheAligned<T> {
         CacheAligned(v)
     }

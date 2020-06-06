@@ -5,7 +5,7 @@ use std::ptr::NonNull;
 
 
 
-use super::page::{Page, Block};
+use super::page::Block;
 
 /// A pointer to `T` in the arena
 ///

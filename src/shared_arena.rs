@@ -454,7 +454,7 @@ impl<T: Sized> SharedArena<T> {
 
         self.shrinking.store(false, Release);
 
-        return true;
+        true
     }
 
     /// Returns a tuple of non-free and free spaces in the arena

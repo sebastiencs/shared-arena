@@ -7,6 +7,7 @@ jobs:
     name: Build & Tests
     runs-on: ubuntu-latest
     strategy:
+      fail-false: false
       matrix:
         rust:
           - stable
@@ -156,6 +157,7 @@ jobs:
     name: Build Cross Platforms
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target:
           - arm-linux-androideabi

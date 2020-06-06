@@ -360,4 +360,10 @@ mod tests {
             assert_eq!(tagged_ptr.index_block(), index_block);
         }
     }
+
+    #[test]
+    fn page_tagged_ptr_debug() {
+        let tagged_ptr = PageTaggedPtr::new(!0, !0, PageKind::PageSharedArena);
+        println!("{:?} {:?}", tagged_ptr.clone(), PageKind::PageArena)
+    }
 }

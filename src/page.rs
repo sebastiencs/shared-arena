@@ -141,14 +141,13 @@ impl PageTaggedPtr {
         PageKind::from(self)
     }
 
-    #[cfg(target_pointer_width = "64") ]
     fn index_block(self) -> usize {
-        (self.data >> 57) & 0b111111
-    }
+        #[cfg(target_pointer_width = "64")]
+        let rotate = 57;
+        #[cfg(not(target_pointer_width = "64"))]
+        let rotate = 0;
 
-    #[cfg(not(target_pointer_width = "64"))]
-    fn index_block(self) -> usize {
-        self.data & 0b111111
+        (self.data >> rotate) & 0b111111
     }
 }
 
@@ -159,18 +158,13 @@ enum PageKind {
 }
 
 impl From<PageTaggedPtr> for PageKind {
-    #[cfg(target_pointer_width = "64")]
     fn from(source: PageTaggedPtr) -> Self {
-        if (source.data >> 63) == 0 {
-            PageKind::PageSharedArena
-        } else {
-            PageKind::PageArena
-        }
-    }
+        #[cfg(target_pointer_width = "64")]
+        let rotate = 63;
+        #[cfg(not(target_pointer_width = "64"))]
+        let rotate = 6;
 
-    #[cfg(not(target_pointer_width = "64"))]
-    fn from(source: PageTaggedPtr) -> Self {
-        if (source.data >> 6) == 0 {
+        if (source.data >> rotate) == 0 {
             PageKind::PageSharedArena
         } else {
             PageKind::PageArena

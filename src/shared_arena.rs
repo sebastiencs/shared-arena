@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering::*;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
 use std::sync::Arc;
 
-use super::page::{Block, Page, BLOCK_PER_PAGE, drop_page};
+use super::page::{Block, PageSharedArena, BLOCK_PER_PAGE, drop_page};
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
 
@@ -13,9 +13,9 @@ use super::arena_box::ArenaBox;
 ///
 /// Pointers to the elements in the SharedArena are shareable as well.
 pub struct SharedArena<T: Sized> {
-    free_list: AtomicPtr<Page<T>>,
-    pending_free_list: Arc<AtomicPtr<Page<T>>>,
-    full_list: AtomicPtr<Page<T>>,
+    free_list: AtomicPtr<PageSharedArena<T>>,
+    pending_free_list: Arc<AtomicPtr<PageSharedArena<T>>>,
+    full_list: AtomicPtr<PageSharedArena<T>>,
     npages: AtomicUsize,
     writer: AtomicBool,
     shrinking: AtomicBool,
@@ -60,7 +60,7 @@ impl<T: Sized> SharedArena<T> {
                               .max(1)
                               .min(900_000);
 
-        let (first, mut last) = Page::make_list(to_allocate, &self.pending_free_list);
+        let (first, mut last) = PageSharedArena::make_list(to_allocate, &self.pending_free_list);
 
         let first_ptr = first.as_ptr();
         let last_ref = unsafe { last.as_mut() };
@@ -170,7 +170,7 @@ impl<T: Sized> SharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
         let pending_free = Arc::new(AtomicPtr::new(std::ptr::null_mut()));
 
-        let (first, _) = Page::make_list(npages, &pending_free);
+        let (first, _) = PageSharedArena::make_list(npages, &pending_free);
 
         SharedArena {
             npages: AtomicUsize::new(npages),
@@ -398,7 +398,7 @@ impl<T: Sized> SharedArena<T> {
 
         let _guard = WriterGuard::new_blocking(&self.writer);
 
-        let mut current: &AtomicPtr<Page<T>> = &AtomicPtr::new(self.free_list.swap(std::ptr::null_mut(), AcqRel));
+        let mut current: &AtomicPtr<PageSharedArena<T>> = &AtomicPtr::new(self.free_list.swap(std::ptr::null_mut(), AcqRel));
         let start = current;
 
         let mut to_drop = Vec::with_capacity(self.npages.load(Relaxed));
@@ -413,7 +413,7 @@ impl<T: Sized> SharedArena<T> {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).is_ok() {
-                    to_drop.push(current_value as *const _ as *mut Page<T>);
+                    to_drop.push(current_value as *const _ as *mut PageSharedArena<T>);
                 }
             } else {
                 current = next;
@@ -423,7 +423,7 @@ impl<T: Sized> SharedArena<T> {
         // Now we are 100% sure that pages in to_drop are/will not be
         // referenced anymore
 
-        let mut current: &AtomicPtr<Page<T>> = &self.full_list;
+        let mut current: &AtomicPtr<PageSharedArena<T>> = &self.full_list;
 
         // Loop on the full list
         // We remove the pages from it
@@ -431,7 +431,7 @@ impl<T: Sized> SharedArena<T> {
             let next = &current_value.next;
             let next_value = next.load(Relaxed);
 
-            if to_drop.contains(&(current_value as *const _ as *mut Page<T>)) {
+            if to_drop.contains(&(current_value as *const _ as *mut PageSharedArena<T>)) {
                 current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).expect("Something went wrong in shrinking.");

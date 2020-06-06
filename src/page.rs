@@ -51,8 +51,8 @@ impl<T> Block<T> {
 
         match block_ref.page.page_kind() {
             PageKind::PageSharedArena => {
-                let page_ptr = block_ref.page.page_ptr::<Page<T>>();
-                Page::<T>::drop_block(page_ptr, block);
+                let page_ptr = block_ref.page.page_ptr::<PageSharedArena<T>>();
+                PageSharedArena::<T>::drop_block(page_ptr, block);
             }
             _ => {
                 unimplemented!()
@@ -182,7 +182,7 @@ impl Into<usize> for PageKind {
 }
 
 
-pub struct Page<T> {
+pub struct PageSharedArena<T> {
     /// Bitfield representing free and non-free blocks.
     /// - 1 = free
     /// - 0 = non-free
@@ -198,41 +198,41 @@ pub struct Page<T> {
     pub bitfield: CacheAligned<Bitfield>,
     /// Array of Block
     pub blocks: [Block<T>; BLOCK_PER_PAGE],
-    pub arena_pending_list: Weak<AtomicPtr<Page<T>>>,
-    pub next_free: AtomicPtr<Page<T>>,
-    pub next: AtomicPtr<Page<T>>,
+    pub arena_pending_list: Weak<AtomicPtr<PageSharedArena<T>>>,
+    pub next_free: AtomicPtr<PageSharedArena<T>>,
+    pub next: AtomicPtr<PageSharedArena<T>>,
     pub in_free_list: AtomicBool,
 }
 
-impl<T> std::fmt::Debug for Page<T> {
+impl<T> std::fmt::Debug for PageSharedArena<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Page")
+        f.debug_struct("PageSharedArena")
          .field("next_free", &self.next_free.load(Relaxed))
          .field("next", &self.next.load(Relaxed))
          .finish()
     }
 }
 
-fn deallocate_page<T>(page: *mut Page<T>) {
-    let layout = Layout::new::<Page<T>>();
+fn deallocate_page<T>(page: *mut PageSharedArena<T>) {
+    let layout = Layout::new::<PageSharedArena<T>>();
     unsafe {
-        dealloc(page as *mut Page<T> as *mut u8, layout);
+        dealloc(page as *mut PageSharedArena<T> as *mut u8, layout);
     }
 }
 
-impl<T> Page<T> {
-    fn allocate() -> NonNull<Page<T>> {
-        let layout = Layout::new::<Page<T>>();
+impl<T> PageSharedArena<T> {
+    fn allocate() -> NonNull<PageSharedArena<T>> {
+        let layout = Layout::new::<PageSharedArena<T>>();
         unsafe {
-            let page = alloc(layout) as *const Page<T>;
+            let page = alloc(layout) as *const PageSharedArena<T>;
             NonNull::from(&*page)
         }
     }
 
     fn new(
-        arena_pending_list: Weak<AtomicPtr<Page<T>>>,
-        next: *mut Page<T>
-    ) -> NonNull<Page<T>>
+        arena_pending_list: Weak<AtomicPtr<PageSharedArena<T>>>,
+        next: *mut PageSharedArena<T>
+    ) -> NonNull<PageSharedArena<T>>
     {
         let mut page_ptr = Self::allocate();
         let page_copy = page_ptr;
@@ -248,7 +248,7 @@ impl<T> Page<T> {
         page.next = AtomicPtr::new(next);
         page.in_free_list = AtomicBool::new(true);
 
-        let pending_ptr = &mut page.arena_pending_list as *mut Weak<AtomicPtr<Page<T>>>;
+        let pending_ptr = &mut page.arena_pending_list as *mut Weak<AtomicPtr<PageSharedArena<T>>>;
         unsafe {
             pending_ptr.write(arena_pending_list);
         }
@@ -262,28 +262,28 @@ impl<T> Page<T> {
         page_ptr
     }
 
-    /// Make a new list of Page
+    /// Make a new list of PageSharedArena
     ///
-    /// Returns the first and last Page in the list
+    /// Returns the first and last PageSharedArena in the list
     pub fn make_list(
         npages: usize,
-        arena_pending_list: &Arc<AtomicPtr<Page<T>>>
-    ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
+        arena_pending_list: &Arc<AtomicPtr<PageSharedArena<T>>>
+    ) -> (NonNull<PageSharedArena<T>>, NonNull<PageSharedArena<T>>)
     {
         let arena_pending_list = Arc::downgrade(arena_pending_list);
 
-        let last = Page::<T>::new(arena_pending_list.clone(), std::ptr::null_mut());
+        let last = PageSharedArena::<T>::new(arena_pending_list.clone(), std::ptr::null_mut());
         let mut previous = last;
 
         for _ in 0..npages - 1 {
-            let page = Page::<T>::new(arena_pending_list.clone(), previous.as_ptr());
+            let page = PageSharedArena::<T>::new(arena_pending_list.clone(), previous.as_ptr());
             previous = page;
         }
 
         (previous, last)
     }
 
-    /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
+    /// Search for a free [`Block`] in the [`PageSharedArena`] and mark it as non-free
     ///
     /// If there is no free block, it returns None
     pub fn acquire_free_block(&self) -> Option<NonNull<Block<T>>> {
@@ -308,7 +308,7 @@ impl<T> Page<T> {
         }
     }
 
-    pub(super) fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
+    pub(super) fn drop_block(mut page: NonNull<PageSharedArena<T>>, block: NonNull<Block<T>>) {
         let page_ptr = page.as_ptr();
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
@@ -359,7 +359,7 @@ impl<T> Page<T> {
     }
 }
 
-pub(super) fn drop_page<T>(page: *mut Page<T>) {
+pub(super) fn drop_page<T>(page: *mut PageSharedArena<T>) {
     // We clear the bit dedicated to the arena
     let old_bitfield = {
         let page = unsafe { page.as_ref().unwrap() };
@@ -372,7 +372,7 @@ pub(super) fn drop_page<T>(page: *mut Page<T>) {
     }
 }
 
-impl<T> Drop for Page<T> {
+impl<T> Drop for PageSharedArena<T> {
     fn drop(&mut self) {
         panic!("PAGE");
     }

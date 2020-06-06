@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn arena_shrink() {
-        let arena = super::SharedArena::<usize>::with_capacity(1000);
+        let arena = SharedArena::<usize>::with_capacity(1000);
         assert_eq!(arena.stats(), (0, 1008));
         arena.shrink_to_fit();
         assert_eq!(arena.stats(), (0, 0));
@@ -617,7 +617,7 @@ mod tests {
 
     #[test]
     fn arena_shrink2() {
-        let arena = super::SharedArena::<usize>::with_capacity(1000);
+        let arena = SharedArena::<usize>::with_capacity(1000);
 
         let _a = arena.alloc(1);
         arena.shrink_to_fit();
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn arena_size() {
-        let arena = super::SharedArena::<usize>::with_capacity(1000);
+        let arena = SharedArena::<usize>::with_capacity(1000);
 
         assert_eq!(arena.size_lists(), (16, 16, 0));
         let a = arena.alloc(1);
@@ -709,7 +709,7 @@ mod tests {
 
     // // #[test]
     // fn arena_size() {
-    //     let arena = super::SharedArena::<usize>::with_capacity(1000);
+    //     let arena = SharedArena::<usize>::with_capacity(1000);
 
     //     assert_eq!(arena.size_lists(), (16, 16));
     //     let a = arena.alloc(1);
@@ -773,7 +773,7 @@ mod tests {
 
     #[test]
     fn alloc_fns() {
-        let arena = super::SharedArena::<usize>::new();
+        let arena = SharedArena::<usize>::new();
 
         use std::ptr;
 
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn drop_arena_with_valid_allocated() {
         let (a, b, c, d) = {
-            let arena = super::SharedArena::<usize>::new();
+            let arena = SharedArena::<usize>::new();
 
             use std::ptr;
 
@@ -852,7 +852,7 @@ mod tests {
             nanos % max
         }
 
-        let arena = Arc::new(super::SharedArena::<usize>::default());
+        let arena = Arc::new(SharedArena::<usize>::default());
 
         let mut values = Vec::with_capacity(126);
         for _ in 0..63 {

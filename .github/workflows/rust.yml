@@ -7,7 +7,7 @@ jobs:
     name: Build & Tests
     runs-on: ubuntu-latest
     strategy:
-      fail-false: false
+      fail-fast: false
       matrix:
         rust:
           - stable

@@ -121,10 +121,9 @@ impl PageTaggedPtr {
         // Index is 6 bits at most
         // Kind is 1 bit
         let kind = kind << 6;
-        // Tag is 7 bits
-        let tag = kind | index;
 
-        tag
+        // Tag is 7 bits
+        kind | index
     }
 
     #[cfg(target_pointer_width = "64")]

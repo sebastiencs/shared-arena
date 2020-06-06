@@ -34,10 +34,103 @@ pub struct Block<T> {
     pub value: UnsafeCell<T>,
     /// Number of references to this block
     pub counter: AtomicUsize,
+    /// Information about its page.
+    /// It's a tagged pointer on 64 bits architectures.
+    /// Contains:
+    ///   - Pointer to page
+    ///   - Index in page
+    ///   - PageKind
     /// Read only and initialized on Page creation
     /// Doesn't need to be atomic
-    pub index_in_page: usize,
+    page: PageTaggedPtr,
 }
+
+impl<T> Block<T> {
+    pub(crate) fn drop_block(block: NonNull<Block<T>>) {
+        let block_ref = unsafe { block.as_ref() };
+
+        match block_ref.page.page_kind() {
+            PageKind::PageSharedArena => {
+                let page_ptr = block_ref.page.page_ptr::<Page<T>>();
+                Page::<T>::drop_block(page_ptr, block);
+            }
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct PageTaggedPtr {
+    pub data: usize
+}
+
+impl std::fmt::Debug for PageTaggedPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PageTaggedPtr")
+         .field("data    ", &format!("{:064b}", self.data))
+         .field("page_ptr", &format!("{:064b}", self.page_ptr::<usize>().as_ptr() as usize))
+         .field("page_kind", &self.page_kind())
+         .field("page_index_block", &format!("{:08b} ({})", self.index_block(), self.index_block()))
+         .finish()
+    }
+}
+
+impl PageTaggedPtr {
+    fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
+        let kind: usize = kind.into();
+        // Index is 6 bits at most
+        // Kind is 1 bit
+        let kind = kind << 6;
+        // Tag is 7 bits
+        let tag = kind | index;
+
+        PageTaggedPtr {
+            data: (page_ptr & !(0b1111111 << 57)) | (tag << 57)
+        }
+    }
+
+    fn page_ptr<T>(self) -> NonNull<T> {
+        let ptr = ((self.data << 7) as isize >> 7) as *mut T;
+
+        NonNull::new(ptr).unwrap()
+    }
+
+    fn page_kind(self) -> PageKind {
+        PageKind::from(self)
+    }
+
+    fn index_block(self) -> usize {
+        (self.data >> 57) & 0b111111
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PageKind {
+    PageSharedArena = 0,
+    PageArena = 1
+}
+
+impl From<PageTaggedPtr> for PageKind {
+    fn from(source: PageTaggedPtr) -> Self {
+        if (source.data >> 63) == 0 {
+            PageKind::PageSharedArena
+        } else {
+            PageKind::PageArena
+        }
+    }
+}
+
+impl Into<usize> for PageKind {
+    fn into(self) -> usize {
+        match self {
+            PageKind::PageSharedArena => 0,
+            PageKind::PageArena => 1
+        }
+    }
+}
+
 
 pub struct Page<T> {
     /// Bitfield representing free and non-free blocks.
@@ -92,6 +185,7 @@ impl<T> Page<T> {
     ) -> NonNull<Page<T>>
     {
         let mut page_ptr = Self::allocate();
+        let page_copy = page_ptr;
 
         let page = unsafe { page_ptr.as_mut() };
 
@@ -111,7 +205,7 @@ impl<T> Page<T> {
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.index_in_page = index;
+            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::PageSharedArena);
             block.counter = AtomicUsize::new(0);
         }
 
@@ -197,7 +291,7 @@ impl<T> Page<T> {
             }
         }
 
-        let bit = 1 << block.index_in_page;
+        let bit = 1 << block.page.index_block();
 
         // We set our bit to mark the block as free.
         // fetch_add is faster than fetch_or (xadd vs cmpxchg), and
@@ -231,5 +325,39 @@ pub(super) fn drop_page<T>(page: *mut Page<T>) {
 impl<T> Drop for Page<T> {
     fn drop(&mut self) {
         panic!("PAGE");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PageKind, PageTaggedPtr};
+
+    #[test]
+    fn page_tagged_ptr() {
+        for index_block in 0..64 {
+            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::PageSharedArena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::PageSharedArena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::PageArena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::PageArena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PageSharedArena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::PageSharedArena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PageArena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::PageArena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+        }
     }
 }

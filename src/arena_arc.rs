@@ -57,7 +57,6 @@ use super::page::{Page, Block};
 #[repr(C)]
 pub struct ArenaArc<T> {
     block: NonNull<Block<T>>,
-    page: NonNull<Page<T>>,
 }
 
 unsafe impl<T: Send> Send for ArenaArc<T> {}
@@ -70,7 +69,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaArc<T> {
 }
 
 impl<T> ArenaArc<T> {
-    pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaArc<T> {
+    pub fn new(block: NonNull<Block<T>>) -> ArenaArc<T> {
         let counter_ref = &unsafe { block.as_ref() }.counter;
 
         // Don't use compare_exchange here, it's too expensive
@@ -84,7 +83,7 @@ impl<T> ArenaArc<T> {
 
         counter_ref.store(1, Relaxed);
 
-        ArenaArc { block, page }
+        ArenaArc { block }
     }
 }
 
@@ -101,7 +100,6 @@ impl<T> Clone for ArenaArc<T> {
         assert!(old < isize::max_value() as usize);
 
         ArenaArc {
-            page: self.page,
             block: self.block
         }
     }
@@ -127,7 +125,7 @@ impl<T> Drop for ArenaArc<T> {
 
         // We were the last reference
         if count == 1 {
-            Page::drop_block(self.page, self.block);
+            Block::drop_block(self.block)
         };
     }
 }

@@ -84,12 +84,12 @@ impl<T: Sized> SharedArena<T> {
         self.npages.fetch_add(to_allocate, Relaxed);
     }
 
-    fn find_place(&self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
+    fn find_place(&self) -> NonNull<Block<T>> {
         loop {
             while let Some(page) = unsafe { self.free_list.load(Acquire).as_mut() } {
 
                 if let Some(block) = page.acquire_free_block() {
-                    return (NonNull::from(page), block);
+                    return block;
                 }
 
                 // No free block on the page, we remove it from the free list
@@ -138,7 +138,7 @@ impl<T: Sized> SharedArena<T> {
 
             while let Some(page) = next {
                 if let Some(block) = page.acquire_free_block() {
-                    return (NonNull::from(page), block);
+                    return block;
                 }
 
                 let next_free = page.next_free.load(Acquire);
@@ -212,14 +212,14 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// [`ArenaBox`]: ./struct.ArenaBox.html
     pub fn alloc(&self, value: T) -> ArenaBox<T> {
-        let (page, block) = self.find_place();
+        let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
             ptr.write(value);
         }
 
-        ArenaBox::new(page, block)
+        ArenaBox::new(block)
     }
 
     /// Finds an empty space in the arena and calls the function `initializer`
@@ -269,14 +269,14 @@ impl<T: Sized> SharedArena<T> {
     where
         F: Fn(&mut MaybeUninit<T>)
     {
-        let (page, block) = self.find_place();
+        let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
             initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
         }
 
-        ArenaBox::new(page, block)
+        ArenaBox::new(block)
     }
 
     /// Writes a value in the arena, and returns an [`ArenaArc`]
@@ -293,14 +293,17 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// [`ArenaArc`]: ./struct.ArenaArc.html
     pub fn alloc_arc(&self, value: T) -> ArenaArc<T> {
-        let (page, block) = self.find_place();
+        let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
             ptr.write(value);
         }
 
-        ArenaArc::new(page, block)
+        // ArenaArc::new(|| {
+        //     Page::drop_block(page, block);
+        // }, block)
+        ArenaArc::new(block)
     }
 
     /// Finds an empty space in the arena and calls the function `initializer`
@@ -350,14 +353,14 @@ impl<T: Sized> SharedArena<T> {
     where
         F: Fn(&mut MaybeUninit<T>)
     {
-        let (page, block) = self.find_place();
+        let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
             initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
         }
 
-        ArenaArc::new(page, block)
+        ArenaArc::new(block)
     }
 
     /// Shrinks the capacity of the arena as much as possible.
@@ -547,9 +550,9 @@ impl<T> Drop for SharedArena<T> {
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let next_next = next_ref.next.load(Relaxed);
             // unsafe {
-                // Invoke Page::drop
-                drop_page(next);
-                // std::ptr::drop_in_place(next);
+            // Invoke Page::drop
+            drop_page(next);
+            // std::ptr::drop_in_place(next);
             // }
             next = next_next;
         }

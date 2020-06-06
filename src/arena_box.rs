@@ -60,7 +60,6 @@ use super::page::{Page, Block};
 #[repr(C)]
 pub struct ArenaBox<T> {
     block: NonNull<Block<T>>,
-    page: NonNull<Page<T>>,
 }
 
 unsafe impl<T: Send> Send for ArenaBox<T> {}
@@ -73,7 +72,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaBox<T> {
 }
 
 impl<T> ArenaBox<T> {
-    pub fn new(page: NonNull<Page<T>>, block: NonNull<Block<T>>) -> ArenaBox<T> {
+    pub fn new(block: NonNull<Block<T>>) -> ArenaBox<T> {
         let counter_ref = &unsafe { block.as_ref() }.counter;
 
         // See ArenaArc<T>::new for more info.
@@ -88,7 +87,7 @@ impl<T> ArenaBox<T> {
 
         counter_ref.store(1, Relaxed);
 
-        ArenaBox { block, page }
+        ArenaBox { block }
     }
 }
 
@@ -121,6 +120,6 @@ impl<T> Drop for ArenaBox<T> {
 
         counter_ref.store(0, Relaxed);
 
-        Page::drop_block(self.page, self.block);
+        Block::drop_block(self.block)
     }
 }

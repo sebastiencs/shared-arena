@@ -605,6 +605,8 @@ impl<T> std::fmt::Debug for SharedArena<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::SharedArena;
+
     #[test]
     fn arena_shrink() {
         let arena = super::SharedArena::<usize>::with_capacity(1000);
@@ -824,6 +826,16 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn arena_with_threads_and_shrinks() {
         test_with_threads(12, 1024 * 4, true);
+    }
+
+    #[test]
+    fn miri_arena_with_threads() {
+        test_with_threads(12, 128, false);
+    }
+
+    #[test]
+    fn miri_arena_with_threads_and_shrinks() {
+        test_with_threads(12, 64, true);
     }
 
     fn test_with_threads(nthreads: usize, nallocs: usize, with_shrink: bool) {

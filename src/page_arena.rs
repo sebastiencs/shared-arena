@@ -193,14 +193,15 @@ impl<T> PageArena<T> {
 }
 
 pub(super) fn drop_page<T>(page: *mut PageArena<T>) {
-    // We clear the bit dedicated to the arena
-    let old_bitfield = {
+    let bitfield = {
         let page = unsafe { page.as_ref().unwrap() };
-        page.bitfield_atomic.fetch_add(MASK_ARENA_BIT, AcqRel)
+        let bitfield = page.bitfield.get();
+        let old_bitfield = page.bitfield_atomic.fetch_or(bitfield, AcqRel);
+
+        old_bitfield | bitfield
     };
 
-    if old_bitfield == !MASK_ARENA_BIT {
-        // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
+    if bitfield == !0 {
         deallocate_page(page);
     }
 }

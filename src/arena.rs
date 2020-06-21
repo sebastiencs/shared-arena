@@ -655,70 +655,6 @@ mod tests {
         assert_eq!(arena.size_lists(), (2, 1, 0));
     }
 
-    // // #[test]
-    // fn arena_size() {
-    //     let arena = Arena::<usize>::with_capacity(1000);
-
-    //     assert_eq!(arena.size_lists(), (16, 16));
-    //     let a = arena.alloc(1);
-    //     assert_eq!(arena.size_lists(), (16, 16));
-
-    //     let mut values = Vec::with_capacity(539);
-    //     for _ in 0..539 {
-    //         values.push(arena.alloc(1));
-    //     }
-    //     assert_eq!(arena.size_lists(), (16, 8));
-
-    //     arena.shrink_to_fit();
-
-    //     assert_eq!(arena.size_lists(), (9, 1));
-
-    //     values.truncate(503);
-    //     arena.shrink_to_fit();
-
-    //     assert_eq!(arena.size_lists(), (8, 0));
-
-    //     std::mem::drop(a);
-    //     for _ in 0..62 {
-    //         values.remove(0);
-    //     }
-
-    //     assert_eq!(arena.size_lists(), (8, 1));
-
-    //     arena.shrink_to_fit();
-    //     assert_eq!(arena.size_lists(), (7, 0));
-
-    //     values.clear();
-    //     assert_eq!(arena.size_lists(), (7, 7));
-
-    //     arena.shrink_to_fit();
-    //     assert_eq!(arena.size_lists(), (0, 0));
-
-    //     {
-    //         let _a = arena.alloc(1);
-    //         assert_eq!(arena.size_lists(), (1, 1));
-
-    //         println!("{:?}", arena);
-    //         arena.display_list();
-    //     }
-
-    //     assert_eq!(arena.size_lists(), (1, 1));
-    //     arena.shrink_to_fit();
-    //     assert_eq!(arena.size_lists(), (0, 0));
-
-    //     let mut values = Vec::with_capacity(126);
-    //     for _ in 0..126 {
-    //         values.push(arena.alloc(1));
-    //     }
-    //     assert_eq!(arena.size_lists(), (2, 1));
-
-    //     values.remove(0);
-    //     assert_eq!(arena.size_lists(), (2, 2));
-
-    //     values.push(arena.alloc(1));
-    //     assert_eq!(arena.size_lists(), (2, 1));
-    // }
-
     #[test]
     fn alloc_fns() {
         let arena = Arena::<usize>::new();
@@ -764,82 +700,95 @@ mod tests {
         assert_eq!((*a, *b, *c, *d), (101, 102, 103, 104))
     }
 
-    // #[test]
-    // #[cfg_attr(miri, ignore)]
-    // fn arena_with_threads() {
-    //     test_with_threads(12, 1024 * 64, false);
-    // }
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn arena_with_threads() {
+        test_with_threads(12, 1024 * 64, false);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn arena_with_threads_and_shrinks() {
+        test_with_threads(12, 1024 * 4, true);
+    }
+
+    #[test]
+    fn miri_arena_with_threads() {
+        test_with_threads(12, 128, false);
+    }
+
+    #[test]
+    fn miri_arena_with_threads_and_shrinks() {
+        test_with_threads(12, 64, true);
+    }
 
     // #[test]
-    // #[cfg_attr(miri, ignore)]
-    // fn arena_with_threads_and_shrinks() {
-    //     test_with_threads(12, 1024 * 4, true);
-    // }
+    fn test_with_threads(nthreads: usize, nallocs: usize, with_shrink: bool) {
+    // fn test_with_threads() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+        use std::time::{SystemTime, UNIX_EPOCH};
 
-    // #[test]
-    // fn miri_arena_with_threads() {
-    //     test_with_threads(12, 128, false);
-    // }
+        fn get_random_number(max: usize) -> usize {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos() as usize;
 
-    // #[test]
-    // fn miri_arena_with_threads_and_shrinks() {
-    //     test_with_threads(12, 64, true);
-    // }
+            nanos % max
+        }
 
-    // fn test_with_threads(nthreads: usize, nallocs: usize, with_shrink: bool) {
-    //     use std::sync::{Arc, Barrier};
-    //     use std::thread;
-    //     use std::time::{SystemTime, UNIX_EPOCH};
+        let mut nshrink = 0;
 
-    //     fn get_random_number(max: usize) -> usize {
-    //         let nanos = SystemTime::now()
-    //             .duration_since(UNIX_EPOCH)
-    //             .unwrap()
-    //             .subsec_nanos() as usize;
+        let arena = Arena::<usize>::default();
 
-    //         nanos % max
-    //     }
+        let mut values_for_threads = Vec::with_capacity(nthreads);
 
-    //     let arena = Arc::new(Arena::<usize>::default());
+        for _ in 0..(nthreads + 1) {
+            let mut values = Vec::with_capacity(nallocs);
+            for _ in 0..values.capacity() {
+                values.push(arena.alloc(1));
+            }
+            values_for_threads.push(values);
+        }
 
-    //     let mut values = Vec::with_capacity(126);
-    //     for _ in 0..63 {
-    //         values.push(arena.alloc(1));
-    //     }
+        let mut handles = Vec::with_capacity(nthreads);
+        let barrier = Arc::new(Barrier::new(nthreads + 1));
 
-    //     let mut handles = Vec::with_capacity(nthreads);
-    //     let barrier = Arc::new(Barrier::new(nthreads));
+        for _ in 0..nthreads {
+            let c = barrier.clone();
+            let mut values = values_for_threads.pop().unwrap();
 
-    //     for _ in 0..nthreads {
-    //         let c = barrier.clone();
-    //         let arena = arena.clone();
-    //         handles.push(thread::spawn(move|| {
-    //             c.wait();
+            handles.push(thread::spawn(move|| {
+                c.wait();
+                while values.len() > 0 {
+                    values.pop();
+                    // println!("POP HERE", );
+                }
+            }));
+        }
 
-    //             arena.shrink_to_fit();
+        let mut values = values_for_threads.pop().unwrap();
 
-    //             let mut nshrink = 0;
+        barrier.wait();
+        while values.len() > 0 {
 
-    //             let mut values = Vec::with_capacity(nallocs);
-    //             for i in 0..(nallocs) {
-    //                 values.push(arena.alloc(1));
-    //                 let rand = get_random_number(values.len());
-    //                 if (i + 1) % 5 == 0 {
-    //                     values.remove(rand);
-    //                 }
-    //                 if with_shrink && rand % 200 == 0 {
-    //                     if arena.shrink_to_fit() {
-    //                         nshrink += 1;
-    //                     }
-    //                 }
-    //             }
+            let rand = get_random_number(values.len());
 
-    //             println!("NSHRINK: {}", nshrink);
-    //         }));
-    //     }
+            if with_shrink && rand % 200 == 0 {
+                // println!("SHRINKING", );
+                if arena.shrink_to_fit() {
+                    nshrink += 1;
+                }
+            }
+            // println!("POP THERE", );
+            values.pop();
+        }
 
-    //     for handle in handles {
-    //         handle.join().unwrap();
-    //     }
-    // }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        println!("NSHRINK={}", nshrink);
+    }
 }

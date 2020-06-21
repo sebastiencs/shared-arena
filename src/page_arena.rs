@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
 use crate::cache_line::CacheAligned;
-use crate::page::{Block, BLOCK_PER_PAGE, PageTaggedPtr, MASK_ARENA_BIT, PageKind};
+use crate::page::{Block, BLOCK_PER_PAGE, PageTaggedPtr, PageKind};
 
 pub type Bitfield = usize;
 pub type BitfieldAtomic = AtomicUsize;

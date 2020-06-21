@@ -9,6 +9,7 @@ use std::alloc::{alloc, dealloc, Layout};
 use static_assertions::const_assert;
 
 use crate::cache_line::CacheAligned;
+use crate::page_arena::PageArena;
 
 // // https://stackoverflow.com/a/53646925
 // const fn max(a: usize, b: usize) -> usize {
@@ -42,7 +43,7 @@ pub struct Block<T> {
     ///   - PageKind
     /// Read only and initialized on Page creation.
     /// Doesn't need to be atomic.
-    page: PageTaggedPtr,
+    pub page: PageTaggedPtr,
 }
 
 impl<T> Block<T> {
@@ -54,8 +55,9 @@ impl<T> Block<T> {
                 let page_ptr = block_ref.page.page_ptr::<PageSharedArena<T>>();
                 PageSharedArena::<T>::drop_block(page_ptr, block);
             }
-            _ => {
-                unimplemented!()
+            PageKind::PageArena => {
+                let page_ptr = block_ref.page.page_ptr::<PageArena<T>>();
+                PageArena::<T>::drop_block(page_ptr, block);
             }
         }
     }
@@ -63,13 +65,13 @@ impl<T> Block<T> {
 
 #[cfg(target_pointer_width = "64")]
 #[derive(Copy, Clone)]
-struct PageTaggedPtr {
+pub struct PageTaggedPtr {
     pub data: usize
 }
 
 #[cfg(not(target_pointer_width = "64"))]
 #[derive(Copy, Clone)]
-struct PageTaggedPtr {
+pub struct PageTaggedPtr {
     ptr: usize,
     data: usize
 }
@@ -98,7 +100,7 @@ impl std::fmt::Debug for PageTaggedPtr {
 
 impl PageTaggedPtr {
     #[cfg(target_pointer_width = "64")]
-    fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
+    pub(crate) fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
         let tag = Self::make_tag(index, kind);
 
         PageTaggedPtr {
@@ -107,7 +109,7 @@ impl PageTaggedPtr {
     }
 
     #[cfg(not(target_pointer_width = "64"))]
-    fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
+    pub(crate) fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
         let tag = Self::make_tag(index, kind);
 
         PageTaggedPtr {
@@ -141,7 +143,7 @@ impl PageTaggedPtr {
         PageKind::from(self)
     }
 
-    fn index_block(self) -> usize {
+    pub(crate) fn index_block(self) -> usize {
         #[cfg(target_pointer_width = "64")]
         let rotate = 57;
         #[cfg(not(target_pointer_width = "64"))]
@@ -152,7 +154,7 @@ impl PageTaggedPtr {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum PageKind {
+pub(crate) enum PageKind {
     PageSharedArena = 0,
     PageArena = 1
 }

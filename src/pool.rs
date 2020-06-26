@@ -4,6 +4,7 @@ use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
+use std::mem::MaybeUninit;
 
 use super::page::{PageTaggedPtr, PageKind};
 
@@ -269,7 +270,7 @@ impl<T> Drop for Page<T> {
 pub struct Pool<T: Sized> {
     free: Rc<Pointer<Page<T>>>,
     page_list: Pointer<Page<T>>,
-    npages: usize,
+    npages: Cell<usize>,
     _marker: PhantomData<*mut ()>
 }
 
@@ -288,15 +289,15 @@ impl<T: Sized> Pool<T> {
         free.set(first_ref);
 
         Pool {
-            npages,
+            npages: Cell::new(npages),
             free,
             page_list: Cell::new(first_ref),
             _marker: PhantomData
         }
     }
 
-    fn alloc_new_page(&mut self) -> NonNull<Page<T>> {
-        let len = self.npages;
+    fn alloc_new_page(&self) -> NonNull<Page<T>> {
+        let len = self.npages.get();
 
         let to_allocate = len.max(1).min(900_000);
 
@@ -312,12 +313,12 @@ impl<T: Sized> Pool<T> {
         self.free.set(first_ref);
         self.page_list.set(first_ref);
 
-        self.npages += to_allocate;
+        self.npages.set(len + to_allocate);
 
         first
     }
 
-    fn find_place(&mut self) -> NonNull<Block<T>> {
+    fn find_place(&self) -> NonNull<Block<T>> {
         loop {
             while let Some(page) = unsafe { self.free.get().as_mut() } {
                 if let Some(block) = page.acquire_free_block() {
@@ -333,7 +334,7 @@ impl<T: Sized> Pool<T> {
         }
     }
 
-    pub fn alloc(&mut self, value: T) -> PoolBox<T> {
+    pub fn alloc(&self, value: T) -> PoolBox<T> {
         let block = self.find_place();
 
         unsafe {
@@ -344,7 +345,21 @@ impl<T: Sized> Pool<T> {
         PoolBox::new(block)
     }
 
-    pub fn alloc_rc(&mut self, value: T) -> PoolRc<T> {
+    pub fn alloc_in_place<F>(&self, initializer: F) -> PoolBox<T>
+    where
+        F: Fn(&mut MaybeUninit<T>)
+    {
+        let block = self.find_place();
+
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+        }
+
+        PoolBox::new(block)
+    }
+
+    pub fn alloc_rc(&self, value: T) -> PoolRc<T> {
         let block = self.find_place();
 
         unsafe {
@@ -353,6 +368,63 @@ impl<T: Sized> Pool<T> {
         }
 
         PoolRc::new(block)
+    }
+
+    pub fn alloc_in_place_rc<F>(&self, initializer: F) -> PoolRc<T>
+    where
+        F: Fn(&mut MaybeUninit<T>)
+    {
+        let block = self.find_place();
+
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+        }
+
+        PoolRc::new(block)
+    }
+
+    pub fn stats(&self) -> (usize, usize) {
+        let mut next = self.page_list.get();
+        let mut used = 0;
+        let mut npages = 0;
+
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            let next_next = next_ref.next.get();
+
+            let bitfield = next_ref.bitfield;
+            let zeros = bitfield.count_zeros() as usize;
+            used += zeros;
+            next = next_next;
+
+            npages += 1;
+        }
+
+        assert!(npages == self.npages.get());
+
+        let free = (npages * BLOCK_PER_PAGE) - used;
+
+        (used, free)
+    }
+
+    #[cfg(target_pointer_width = "64") ]
+    #[cfg(test)]
+    pub(crate) fn size_lists(&self) -> (usize, usize) {
+        let mut next = self.page_list.get();
+        let mut size = 0;
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            next = next_ref.next.get();
+            size += 1;
+        }
+
+        let mut next = self.free.get();
+        let mut free = 0;
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            next = next_ref.next_free.get();
+            free += 1;
+        }
+
+        (size, free)
     }
 
     pub fn shrink_to_fit(&mut self) {
@@ -388,12 +460,35 @@ impl<T: Sized> Pool<T> {
             }
         }
 
-        self.npages -= to_drop.len();
+        self.npages.set(self.npages.get() - to_drop.len());
 
         for page in to_drop.iter().rev() {
             // Invoke Page::drop
             unsafe { std::ptr::drop_in_place(*page) }
         }
+    }
+
+    #[allow(dead_code)]
+    #[cfg(test)]
+    pub(crate) fn display_list(&self) {
+        let mut full = vec![];
+
+        let mut next = self.page_list.get();
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            full.push(next);
+            next = next_ref.next.get();
+        }
+
+        let mut list_free = vec![];
+
+        let mut next = self.page_list.get();
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            list_free.push(next);
+            next = next_ref.next_free.get();
+        }
+
+        println!("FULL {} {:#?}", full.len(), full);
+        println!("FREE {} {:#?}", list_free.len(), list_free);
     }
 }
 
@@ -414,5 +509,213 @@ impl<T> Drop for Pool<T> {
             }
             next = next_next;
         }
+    }
+}
+
+impl<T> std::fmt::Debug for Pool<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        struct Page {
+            free: usize,
+            used: usize,
+        }
+
+        impl std::fmt::Debug for Page {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "Page {{ free: {} used: {} }}", self.free, self.used)
+            }
+        }
+
+        let npages = self.npages.get();
+
+        let mut vec = Vec::with_capacity(npages);
+
+        let mut next = self.page_list.get();
+
+        while let Some(next_ref) = unsafe { next.as_mut() } {
+            let used = next_ref.bitfield.count_zeros() as usize;
+            vec.push(Page {
+                used,
+                free: BLOCK_PER_PAGE - used
+            });
+
+            next = next_ref.next.get();
+        }
+
+        let blocks_used: usize = vec.iter().map(|p| p.used).sum();
+        let blocks_free: usize = vec.iter().map(|p| p.free).sum();
+
+        f.debug_struct("Arena")
+         .field("blocks_free", &blocks_free)
+         .field("blocks_used", &blocks_used)
+         .field("npages", &npages)
+         .field("pages", &vec)
+         .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Pool;
+
+    #[cfg(target_pointer_width = "64") ]
+    #[test]
+    fn arena_shrink() {
+        let mut arena = Pool::<usize>::with_capacity(1000);
+        assert_eq!(arena.stats(), (0, 1008));
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (0, 0));
+    }
+
+    #[cfg(target_pointer_width = "64") ]
+    #[test]
+    fn arena_shrink2() {
+        let mut arena = Pool::<usize>::with_capacity(1000);
+
+        println!("A");
+        let _a = arena.alloc(1);
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (1, 62));
+
+        println!("A1");
+        let _a = arena.alloc(1);
+        arena.shrink_to_fit();
+        assert_eq!(arena.stats(), (2, 61));
+
+        println!("A2");
+        let mut values = Vec::with_capacity(64);
+        for _ in 0..64 {
+            values.push(arena.alloc(1));
+        }
+
+        println!("A3");
+        assert_eq!(arena.stats(), (66, 60));
+        println!("A32");
+        arena.shrink_to_fit();
+        println!("A33");
+        assert_eq!(arena.stats(), (66, 60));
+
+        println!("A4");
+        std::mem::drop(values);
+
+        println!("A5");
+        assert_eq!(arena.stats(), (2, 124));
+        println!("A6");
+        arena.shrink_to_fit();
+        println!("A7");
+        assert_eq!(arena.stats(), (2, 61));
+    }
+
+    #[cfg(target_pointer_width = "64") ]
+    #[test]
+    fn arena_size() {
+        let mut arena = Pool::<usize>::with_capacity(1000);
+
+        assert_eq!(arena.size_lists(), (16, 16));
+        let a = arena.alloc(1);
+        assert_eq!(arena.size_lists(), (16, 16));
+
+        let mut values = Vec::with_capacity(539);
+        for _ in 0..539 {
+            values.push(arena.alloc(1));
+        }
+        assert_eq!(arena.size_lists(), (16, 8));
+
+        arena.shrink_to_fit();
+
+        assert_eq!(arena.size_lists(), (9, 1));
+
+        values.truncate(503);
+        arena.shrink_to_fit();
+
+        assert_eq!(arena.size_lists(), (8, 0));
+
+        std::mem::drop(a);
+        for _ in 0..62 {
+            values.remove(0);
+        }
+
+        assert_eq!(arena.size_lists(), (8, 1));
+
+        arena.shrink_to_fit();
+
+        assert_eq!(arena.size_lists(), (7, 0));
+
+        values.clear();
+
+        assert_eq!(arena.size_lists(), (7, 7));
+
+        arena.shrink_to_fit();
+
+        assert_eq!(arena.size_lists(), (0, 0));
+
+        {
+            let _a = arena.alloc(1);
+            println!("LA3", );
+            assert_eq!(arena.size_lists(), (1, 1));
+
+            println!("{:?}", arena);
+            arena.display_list();
+        }
+
+        assert_eq!(arena.size_lists(), (1, 1));
+        arena.shrink_to_fit();
+        assert_eq!(arena.size_lists(), (0, 0));
+
+        let mut values = Vec::with_capacity(126);
+        for _ in 0..126 {
+            values.push(arena.alloc(1));
+        }
+        assert_eq!(arena.size_lists(), (2, 1));
+
+        values.remove(0);
+        assert_eq!(arena.size_lists(), (2, 2));
+
+        values.push(arena.alloc(1));
+        assert_eq!(arena.size_lists(), (2, 2));
+    }
+
+    #[test]
+    fn alloc_fns() {
+        let arena = Pool::<usize>::new();
+
+        use std::ptr;
+
+        let a = arena.alloc_in_place(|place| unsafe {
+            ptr::copy(&101, place.as_mut_ptr(), 1);
+        });
+        assert!(*a == 101);
+
+        let a = arena.alloc_in_place_rc(|place| unsafe {
+            ptr::copy(&102, place.as_mut_ptr(), 1);
+        });
+        assert!(*a == 102);
+
+        let a = arena.alloc(103);
+        assert!(*a == 103);
+
+        let a = arena.alloc_rc(104);
+        assert!(*a == 104);
+    }
+
+    #[test]
+    fn drop_arena_with_valid_allocated() {
+        let (a, b, c, d) = {
+            let arena = Pool::<usize>::new();
+
+            use std::ptr;
+
+            let a = arena.alloc_in_place(|place| unsafe {
+                ptr::copy(&101, place.as_mut_ptr(), 1);
+            });
+            let b = arena.alloc_in_place_rc(|place| unsafe {
+                ptr::copy(&102, place.as_mut_ptr(), 1);
+            });
+            let c = arena.alloc(103);
+            let d = arena.alloc_rc(104);
+
+            (a, b, c, d)
+        };
+
+        assert_eq!((*a, *b, *c, *d), (101, 102, 103, 104))
     }
 }

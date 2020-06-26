@@ -88,7 +88,7 @@ impl<T> PageArena<T> {
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::PageArena);
+            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::Arena);
             block.counter = AtomicUsize::new(0);
         }
 

@@ -51,15 +51,15 @@ impl<T> Block<T> {
         let block_ref = unsafe { block.as_ref() };
 
         match block_ref.page.page_kind() {
-            PageKind::PageSharedArena => {
+            PageKind::SharedArena => {
                 let page_ptr = block_ref.page.page_ptr::<PageSharedArena<T>>();
                 PageSharedArena::<T>::drop_block(page_ptr, block);
             }
-            PageKind::PageArena => {
+            PageKind::Arena => {
                 let page_ptr = block_ref.page.page_ptr::<PageArena<T>>();
                 PageArena::<T>::drop_block(page_ptr, block);
             }
-            PageKind::PagePool => {
+            PageKind::Pool => {
                 panic!("Wrong PageTaggedPtr")
             }
         }
@@ -158,9 +158,9 @@ impl PageTaggedPtr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PageKind {
-    PageSharedArena = 0,
-    PageArena = 1,
-    PagePool = 2
+    SharedArena = 0,
+    Arena = 1,
+    Pool = 2
 }
 
 impl From<PageTaggedPtr> for PageKind {
@@ -173,9 +173,9 @@ impl From<PageTaggedPtr> for PageKind {
         let kind = source.data >> rotate;
 
         match kind {
-            0 => PageKind::PageSharedArena,
-            1 => PageKind::PageArena,
-            2 => PageKind::PagePool,
+            0 => PageKind::SharedArena,
+            1 => PageKind::Arena,
+            2 => PageKind::Pool,
             _ => panic!("Invalid page kind")
         }
     }
@@ -184,9 +184,9 @@ impl From<PageTaggedPtr> for PageKind {
 impl Into<usize> for PageKind {
     fn into(self) -> usize {
         match self {
-            PageKind::PageSharedArena => 0,
-            PageKind::PageArena => 1,
-            PageKind::PagePool => 2
+            PageKind::SharedArena => 0,
+            PageKind::Arena => 1,
+            PageKind::Pool => 2
         }
     }
 }
@@ -265,7 +265,7 @@ impl<T> PageSharedArena<T> {
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::PageSharedArena);
+            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::SharedArena);
             block.counter = AtomicUsize::new(0);
         }
 
@@ -395,48 +395,48 @@ mod tests {
     #[test]
     fn page_tagged_ptr() {
         for index_block in 0..64 {
-            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::PageSharedArena);
+            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::SharedArena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
-            assert_eq!(tagged_ptr.page_kind(), PageKind::PageSharedArena);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::SharedArena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::PageArena);
+            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::Arena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
-            assert_eq!(tagged_ptr.page_kind(), PageKind::PageArena);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Arena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::PagePool);
+            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::Pool);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
-            assert_eq!(tagged_ptr.page_kind(), PageKind::PagePool);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PageSharedArena);
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::SharedArena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
-            assert_eq!(tagged_ptr.page_kind(), PageKind::PageSharedArena);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::SharedArena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PageArena);
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::Arena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
-            assert_eq!(tagged_ptr.page_kind(), PageKind::PageArena);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Arena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PagePool);
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::Pool);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
-            assert_eq!(tagged_ptr.page_kind(), PageKind::PagePool);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
             assert_eq!(tagged_ptr.index_block(), index_block);
         }
     }
 
     #[test]
     fn page_tagged_ptr_debug() {
-        let tagged_ptr = PageTaggedPtr::new(!0, 64, PageKind::PageSharedArena);
-        println!("{:?} {:?}", tagged_ptr.clone(), PageKind::PageArena);
+        let tagged_ptr = PageTaggedPtr::new(!0, 64, PageKind::SharedArena);
+        println!("{:?} {:?}", tagged_ptr.clone(), PageKind::Arena);
 
         let tagged_ptr_2 = tagged_ptr;
         let tagged_ptr_3 = tagged_ptr_2.clone();

@@ -23,7 +23,7 @@ impl<T> Block<T> {
         let block_ref = unsafe { block.as_ref() };
 
         match block_ref.page.page_kind() {
-            PageKind::PagePool => {
+            PageKind::Pool => {
                 let page_ptr = block_ref.page.page_ptr::<Page<T>>();
                 Page::<T>::drop_block(page_ptr, block);
             }
@@ -171,7 +171,7 @@ impl<T> Page<T> {
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::PagePool);
+            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::Pool);
             block.counter = 0;
         }
 

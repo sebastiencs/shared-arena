@@ -59,6 +59,9 @@ impl<T> Block<T> {
                 let page_ptr = block_ref.page.page_ptr::<PageArena<T>>();
                 PageArena::<T>::drop_block(page_ptr, block);
             }
+            PageKind::PagePool => {
+                panic!("Wrong PageTaggedPtr")
+            }
         }
     }
 }
@@ -104,7 +107,7 @@ impl PageTaggedPtr {
         let tag = Self::make_tag(index, kind);
 
         PageTaggedPtr {
-            data: (page_ptr & !(0b1111111 << 57)) | (tag << 57)
+            data: (page_ptr & !(0b11111111 << 56)) | (tag << 56)
         }
     }
 
@@ -121,31 +124,31 @@ impl PageTaggedPtr {
     fn make_tag(index: usize, kind: PageKind) -> usize {
         let kind: usize = kind.into();
         // Index is 6 bits at most
-        // Kind is 1 bit
+        // Kind is 2 bit
         let kind = kind << 6;
 
-        // Tag is 7 bits
+        // Tag is 8 bits
         kind | index
     }
 
     #[cfg(target_pointer_width = "64")]
-    fn page_ptr<T>(self) -> NonNull<T> {
-        let ptr = ((self.data << 7) as isize >> 7) as *mut T;
+    pub(crate) fn page_ptr<T>(self) -> NonNull<T> {
+        let ptr = ((self.data << 8) as isize >> 8) as *mut T;
         NonNull::new(ptr).unwrap()
     }
 
     #[cfg(not(target_pointer_width = "64"))]
-    fn page_ptr<T>(self) -> NonNull<T> {
+    pub(crate) fn page_ptr<T>(self) -> NonNull<T> {
         NonNull::new(self.ptr as *mut T).unwrap()
     }
 
-    fn page_kind(self) -> PageKind {
+    pub(crate) fn page_kind(self) -> PageKind {
         PageKind::from(self)
     }
 
     pub(crate) fn index_block(self) -> usize {
         #[cfg(target_pointer_width = "64")]
-        let rotate = 57;
+        let rotate = 56;
         #[cfg(not(target_pointer_width = "64"))]
         let rotate = 0;
 
@@ -156,20 +159,24 @@ impl PageTaggedPtr {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PageKind {
     PageSharedArena = 0,
-    PageArena = 1
+    PageArena = 1,
+    PagePool = 2
 }
 
 impl From<PageTaggedPtr> for PageKind {
     fn from(source: PageTaggedPtr) -> Self {
         #[cfg(target_pointer_width = "64")]
-        let rotate = 63;
+        let rotate = 62;
         #[cfg(not(target_pointer_width = "64"))]
         let rotate = 6;
 
-        if (source.data >> rotate) == 0 {
-            PageKind::PageSharedArena
-        } else {
-            PageKind::PageArena
+        let kind = source.data >> rotate;
+
+        match kind {
+            0 => PageKind::PageSharedArena,
+            1 => PageKind::PageArena,
+            2 => PageKind::PagePool,
+            _ => panic!("Invalid page kind")
         }
     }
 }
@@ -178,7 +185,8 @@ impl Into<usize> for PageKind {
     fn into(self) -> usize {
         match self {
             PageKind::PageSharedArena => 0,
-            PageKind::PageArena => 1
+            PageKind::PageArena => 1,
+            PageKind::PagePool => 2
         }
     }
 }
@@ -399,6 +407,12 @@ mod tests {
             assert_eq!(tagged_ptr.page_kind(), PageKind::PageArena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
+            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::PagePool);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::PagePool);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
             let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PageSharedArena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
@@ -410,12 +424,18 @@ mod tests {
             assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::PageArena);
             assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::PagePool);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::PagePool);
+            assert_eq!(tagged_ptr.index_block(), index_block);
         }
     }
 
     #[test]
     fn page_tagged_ptr_debug() {
-        let tagged_ptr = PageTaggedPtr::new(!0, !0, PageKind::PageSharedArena);
+        let tagged_ptr = PageTaggedPtr::new(!0, 64, PageKind::PageSharedArena);
         println!("{:?} {:?}", tagged_ptr.clone(), PageKind::PageArena);
 
         let tagged_ptr_2 = tagged_ptr;

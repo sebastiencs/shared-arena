@@ -5,6 +5,8 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 
+use super::page::{PageTaggedPtr, PageKind};
+
 // This module is a transpose of other modules without atomics
 
 type Pointer<T> = Cell<*mut T>;
@@ -13,12 +15,26 @@ type Pointer<T> = Cell<*mut T>;
 struct Block<T> {
     value: UnsafeCell<T>,
     counter: usize,
-    index_in_page: usize,
+    page: PageTaggedPtr,
+}
+
+impl<T> Block<T> {
+    pub(crate) fn drop_block(block: NonNull<Block<T>>) {
+        let block_ref = unsafe { block.as_ref() };
+
+        match block_ref.page.page_kind() {
+            PageKind::PagePool => {
+                let page_ptr = block_ref.page.page_ptr::<Page<T>>();
+                Page::<T>::drop_block(page_ptr, block);
+            }
+            x => panic!("Wrong PageTaggedPtr {:?}", x)
+        }
+    }
 }
 
 use super::page::{BLOCK_PER_PAGE, MASK_ARENA_BIT};
 
-struct Page<T> {
+pub struct Page<T> {
     bitfield: usize,
     blocks: [Block<T>; BLOCK_PER_PAGE],
     arena_free_list: Weak<Pointer<Page<T>>>,
@@ -29,16 +45,16 @@ struct Page<T> {
 
 pub struct PoolRc<T> {
     block: NonNull<Block<T>>,
-    page: NonNull<Page<T>>,
+    // page: NonNull<Page<T>>,
     _marker: PhantomData<*mut ()>
 }
 
 impl<T> PoolRc<T> {
-    fn new(page: NonNull<Page<T>>, mut block: NonNull<Block<T>>) -> PoolRc<T> {
+    fn new(mut block: NonNull<Block<T>>) -> PoolRc<T> {
         let counter = &mut unsafe { block.as_mut() }.counter;
         assert!(*counter == 0, "PoolRc: Counter not zero {}", counter);
         *counter = 1;
-        PoolRc { block, page, _marker: PhantomData }
+        PoolRc { block, _marker: PhantomData }
     }
 }
 
@@ -54,29 +70,30 @@ impl<T> std::ops::Deref for PoolRc<T> {
 /// The value pointed by this PoolBox is also dropped
 impl<T> Drop for PoolRc<T> {
     fn drop(&mut self) {
-        let (page, block) = unsafe {
-            (self.page.as_mut(), self.block.as_mut())
-        };
+        let block = unsafe { self.block.as_mut() };
+
+        // We decrement the reference counter
         block.counter -= 1;
+
+        // We were the last reference
         if block.counter == 0 {
-            page.drop_block(block);
-        }
+            Block::drop_block(self.block)
+        };
     }
 }
 
 pub struct PoolBox<T> {
     block: NonNull<Block<T>>,
-    page: NonNull<Page<T>>,
     _marker: PhantomData<*mut ()>
 }
 
 impl<T> PoolBox<T> {
-    fn new(page: NonNull<Page<T>>, mut block: NonNull<Block<T>>) -> PoolBox<T> {
+    fn new(mut block: NonNull<Block<T>>) -> PoolBox<T> {
         let counter = &mut unsafe { block.as_mut() }.counter;
         // See ArenaBox<T>::new for why we touch the counter
         assert!(*counter == 0, "PoolBox: Counter not zero {}", counter);
         *counter = 1;
-        PoolBox { block, page, _marker: PhantomData }
+        PoolBox { block, _marker: PhantomData }
     }
 }
 
@@ -98,13 +115,16 @@ impl<T> std::ops::DerefMut for PoolBox<T> {
 /// The value pointed by this PoolBox is also dropped
 impl<T> Drop for PoolBox<T> {
     fn drop(&mut self) {
-        let (page, block) = unsafe {
-            (self.page.as_mut(), self.block.as_mut())
-        };
+        let block = unsafe { self.block.as_mut() };
+
         // See ArenaBox<T>::new for why we touch the counter
         assert!(block.counter == 1, "PoolBox: Counter != 1 on drop {}", block.counter);
         block.counter = 0;
-        page.drop_block(block);
+
+        // We were the last reference
+        if block.counter == 0 {
+            Block::drop_block(self.block)
+        };
     }
 }
 
@@ -130,6 +150,7 @@ impl<T> Page<T> {
     ) -> NonNull<Page<T>>
     {
         let mut page_ptr = Self::allocate();
+        let page_copy = page_ptr;
 
         let page = unsafe { page_ptr.as_mut() };
 
@@ -150,7 +171,7 @@ impl<T> Page<T> {
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.index_in_page = index;
+            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::PagePool);
             block.counter = 0;
         }
 
@@ -182,7 +203,7 @@ impl<T> Page<T> {
     /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
     ///
     /// If there is no free block, it returns None
-    pub fn acquire_free_block(&mut self) -> Option<NonNull<Block<T>>> {
+    fn acquire_free_block(&mut self) -> Option<NonNull<Block<T>>> {
         let index_free = self.bitfield.trailing_zeros() as usize;
 
         if index_free == BLOCK_PER_PAGE {
@@ -195,33 +216,37 @@ impl<T> Page<T> {
         Some(NonNull::from(&self.blocks[index_free]))
     }
 
-    fn drop_block(&mut self, block: &Block<T>) {
+    fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
+        let page = unsafe { page.as_mut() };
+        let block = unsafe { block.as_ref() };
+
         unsafe {
             // Drop the inner value
             std::ptr::drop_in_place(block.value.get());
         }
-        let index_in_page = block.index_in_page;
-        self.bitfield |= 1 << index_in_page;
+
+        let index_in_page = block.page.index_block();
+        page.bitfield |= 1 << index_in_page;
 
         // The bit dedicated to the Page is inversed (1 for used, 0 for free)
-        if !self.bitfield == MASK_ARENA_BIT {
+        if !page.bitfield == MASK_ARENA_BIT {
             // We were the last block/arena referencing this page
             // Deallocate it
-            self.deallocate();
+            page.deallocate();
             return;
         }
 
-        if !self.in_free_list {
-            self.in_free_list = true;
+        if !page.in_free_list {
+            page.in_free_list = true;
 
-            let arena_free_list = match self.arena_free_list.upgrade() {
+            let arena_free_list = match page.arena_free_list.upgrade() {
                 Some(ptr) => ptr,
                 _ => return // The arena has been dropped
             };
 
             let current = arena_free_list.get();
-            self.next_free.set(current);
-            arena_free_list.set(self);
+            page.next_free.set(current);
+            arena_free_list.set(page);
         }
     }
 }
@@ -292,11 +317,11 @@ impl<T: Sized> Pool<T> {
         first
     }
 
-    fn find_place(&mut self) -> (NonNull<Page<T>>, NonNull<Block<T>>) {
+    fn find_place(&mut self) -> NonNull<Block<T>> {
         loop {
             while let Some(page) = unsafe { self.free.get().as_mut() } {
                 if let Some(block) = page.acquire_free_block() {
-                    return (NonNull::from(page), block);
+                    return block;
                 }
 
                 let next = page.next_free.get();
@@ -309,25 +334,25 @@ impl<T: Sized> Pool<T> {
     }
 
     pub fn alloc(&mut self, value: T) -> PoolBox<T> {
-        let (page, block) = self.find_place();
+        let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
             ptr.write(value);
         }
 
-        PoolBox::new(page, block)
+        PoolBox::new(block)
     }
 
     pub fn alloc_rc(&mut self, value: T) -> PoolRc<T> {
-        let (page, block) = self.find_place();
+        let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
             ptr.write(value);
         }
 
-        PoolRc::new(page, block)
+        PoolRc::new(block)
     }
 
     pub fn shrink_to_fit(&mut self) {

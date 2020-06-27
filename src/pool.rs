@@ -223,6 +223,7 @@ impl<T> Page<T> {
     }
 
     fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
+        let page_ptr = page.as_ptr();
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
 
@@ -238,7 +239,7 @@ impl<T> Page<T> {
         if !page.bitfield == MASK_ARENA_BIT {
             // We were the last block/arena referencing this page
             // Deallocate it
-            Page::<T>::deallocate_page(page);
+            Page::<T>::deallocate_page(page_ptr);
             return;
         }
 
@@ -252,7 +253,7 @@ impl<T> Page<T> {
 
             let current = arena_free_list.get();
             page.next_free.set(current);
-            arena_free_list.set(page);
+            arena_free_list.set(page_ptr);
         }
     }
 }
@@ -314,17 +315,15 @@ impl<T: Sized> Pool<T> {
 
         let to_allocate = len.max(1).min(900_000);
 
-        let (mut first, mut last) = Page::make_list(to_allocate, &self.free);
+        let (first, mut last) = Page::make_list(to_allocate, &self.free);
 
-        let (first_ref, last_ref) = unsafe {
-            (first.as_mut(), last.as_mut())
-        };
-
+        let last_ref = unsafe { last.as_mut() };
         last_ref.next_free.set(self.free.get());
         last_ref.next.set(self.page_list.get());
 
-        self.free.set(first_ref);
-        self.page_list.set(first_ref);
+        let first_ptr = first.as_ptr();
+        self.free.set(first_ptr);
+        self.page_list.set(first_ptr);
 
         self.npages.set(len + to_allocate);
 

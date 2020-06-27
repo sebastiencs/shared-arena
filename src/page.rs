@@ -134,7 +134,10 @@ impl PageTaggedPtr {
     #[cfg(target_pointer_width = "64")]
     pub(crate) fn page_ptr<T>(self) -> NonNull<T> {
         let ptr = ((self.data << 8) as isize >> 8) as *mut T;
-        NonNull::new(ptr).unwrap()
+        match NonNull::new(ptr) {
+            Some(ptr) => ptr,
+            None => panic!("Invalid pointer: '{:064b}'", self.data)
+        }
     }
 
     #[cfg(not(target_pointer_width = "64"))]

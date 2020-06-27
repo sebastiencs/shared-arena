@@ -444,4 +444,28 @@ mod tests {
         assert!(tagged_ptr.data == tagged_ptr_2.data);
         assert!(tagged_ptr.data == tagged_ptr_3.data);
     }
+
+    #[test]
+    #[should_panic]
+    #[cfg(target_pointer_width = "64") ]
+    fn invalid_block() {
+        use std::cell::UnsafeCell;
+        use std::ptr::NonNull;
+        use std::sync::atomic::AtomicUsize;
+
+        let mut block = super::Block {
+            value: UnsafeCell::new(1),
+            counter: AtomicUsize::new(1),
+            page: super::PageTaggedPtr { data: !0 },
+        };
+
+        super::Block::drop_block(NonNull::from(&mut block));
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(target_pointer_width = "64") ]
+    fn invalid_tagged_ptr() {
+        super::PageKind::from(super::PageTaggedPtr { data: !0 });
+    }
 }

@@ -232,6 +232,16 @@ impl<T> Page<T> {
             std::ptr::drop_in_place(block.value.get());
         }
 
+        if !page.in_free_list {
+            page.in_free_list = true;
+
+            if let Some(arena_free_list) = page.arena_free_list.upgrade() {
+                let current = arena_free_list.get();
+                page.next_free.set(current);
+                arena_free_list.set(page_ptr);
+            };
+        }
+
         let index_in_page = block.page.index_block();
         page.bitfield |= 1 << index_in_page;
 
@@ -241,19 +251,6 @@ impl<T> Page<T> {
             // Deallocate it
             Page::<T>::deallocate_page(page_ptr);
             return;
-        }
-
-        if !page.in_free_list {
-            page.in_free_list = true;
-
-            let arena_free_list = match page.arena_free_list.upgrade() {
-                Some(ptr) => ptr,
-                _ => return // The arena has been dropped
-            };
-
-            let current = arena_free_list.get();
-            page.next_free.set(current);
-            arena_free_list.set(page_ptr);
         }
     }
 }
@@ -726,5 +723,21 @@ mod tests {
         };
 
         assert_eq!((*a, *b, *c, *d), (101, 102, 103, 104))
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(target_pointer_width = "64") ]
+    fn invalid_block() {
+        use std::cell::UnsafeCell;
+        use std::ptr::NonNull;
+
+        let mut block = super::Block {
+            value: UnsafeCell::new(1),
+            counter: 1,
+            page: super::PageTaggedPtr { data: !0 },
+        };
+
+        super::Block::drop_block(NonNull::from(&mut block));
     }
 }

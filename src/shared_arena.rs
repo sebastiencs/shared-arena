@@ -102,6 +102,7 @@ impl<T: Sized> SharedArena<T> {
                     // self.pending_free.
                     // page.in_free_list.store(false, Release);
 
+                    // TODO: Should we set page.next_free null here ?
                     page.in_free_list.store(false, Release);
                 }
             }
@@ -134,19 +135,13 @@ impl<T: Sized> SharedArena<T> {
             // So instead of looping on self.free (which will stay null until allocation
             // is done), we check for pages on self.pending_free.
 
-            let mut next = unsafe { self.pending_free_list.load(Relaxed).as_mut() };
+            let mut next = unsafe { self.pending_free_list.load(Acquire).as_mut() };
 
             while let Some(page) = next {
                 if let Some(block) = page.acquire_free_block() {
                     return block;
                 }
-
-                let next_free = page.next_free.load(Acquire);
-                if self.pending_free_list.compare_exchange(page, next_free, AcqRel, Relaxed).is_ok() {
-                    page.in_free_list.store(false, Release);
-                }
-
-                next = unsafe { page.next_free.load(Relaxed).as_mut() };
+                next = unsafe { page.next_free.load(Acquire).as_mut() };
             }
         }
     }

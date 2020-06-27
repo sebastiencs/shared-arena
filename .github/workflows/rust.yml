@@ -5,7 +5,7 @@ on: [push, pull_request]
 jobs:
   test:
     name: Build & Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -13,6 +13,10 @@ jobs:
           - stable
           - beta
           - nightly
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
 
     steps:
       - uses: actions/checkout@v2

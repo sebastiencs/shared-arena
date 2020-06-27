@@ -415,9 +415,6 @@ impl<T: Sized> SharedArena<T> {
             }
         }
 
-        // Now we are 100% sure that pages in to_drop are/will not be
-        // referenced anymore
-
         let mut current: &AtomicPtr<PageSharedArena<T>> = &self.full_list;
 
         // Loop on the full list
@@ -436,12 +433,9 @@ impl<T: Sized> SharedArena<T> {
         }
 
         for page in &to_drop {
-            let page_ref = unsafe { page.as_ref().unwrap() };
-
-            assert!(page_ref.bitfield.load(Acquire) == !0);
-
             drop_page(*page);
         }
+
         let old = self.free_list.swap(start.load(Relaxed), Release);
         assert!(old.is_null(), "OLD NOT NULL");
 

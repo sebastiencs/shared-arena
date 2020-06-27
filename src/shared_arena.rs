@@ -102,7 +102,7 @@ impl<T: Sized> SharedArena<T> {
                     // self.pending_free.
                     // page.in_free_list.store(false, Release);
 
-                    // TODO: Should we set page.next_free null here ?
+                    page.next_free.store(std::ptr::null_mut(), Relaxed);
                     page.in_free_list.store(false, Release);
                 }
             }

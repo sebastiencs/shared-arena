@@ -138,10 +138,10 @@ impl<T> Page<T> {
         }
     }
 
-    pub fn deallocate(&mut self) {
+    fn deallocate_page(page: *mut Page<T>) {
         let layout = Layout::new::<Page<T>>();
         unsafe {
-            dealloc(self as *mut Page<T> as *mut u8, layout);
+            dealloc(page as *mut Page<T> as *mut u8, layout);
         }
     }
 
@@ -160,14 +160,19 @@ impl<T> Page<T> {
 
         // We fill the bitfield with ones
         page.bitfield = !0;
-        page.next_free.set(next);
-        page.next.set(next);
+        // page.next_free.set(next);
+        // page.next.set(next);
         page.in_free_list = true;
 
         let free_ptr = &mut page.arena_free_list as *mut Weak<Pointer<Page<T>>>;
         unsafe {
             free_ptr.write(arena_free_list);
             // TODO: forget the old weak
+
+            let next_free_ptr = &mut page.next_free as *mut Pointer<_>;
+            let next_ptr = &mut page.next as *mut Pointer<_>;
+            next_free_ptr.write(Cell::new(next));
+            next_ptr.write(Cell::new(next));
         }
 
         // initialize the blocks
@@ -233,7 +238,7 @@ impl<T> Page<T> {
         if !page.bitfield == MASK_ARENA_BIT {
             // We were the last block/arena referencing this page
             // Deallocate it
-            page.deallocate();
+            Page::<T>::deallocate_page(page);
             return;
         }
 
@@ -252,15 +257,23 @@ impl<T> Page<T> {
     }
 }
 
+pub(super) fn drop_page<T>(page: *mut Page<T>) {
+    // We clear the bit dedicated to the arena
+    let new_bitfield = {
+        let page = unsafe { page.as_mut().unwrap() };
+        page.bitfield &= !MASK_ARENA_BIT;
+        page.bitfield
+    };
+
+    if !new_bitfield == MASK_ARENA_BIT {
+        // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
+        Page::<T>::deallocate_page(page);
+    }
+}
+
 impl<T> Drop for Page<T> {
     fn drop(&mut self) {
-        self.bitfield &= !MASK_ARENA_BIT;
-
-        // The bit dedicated to the arena is inversed (1 for used, 0 for free)
-        if !self.bitfield == MASK_ARENA_BIT {
-            // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
-            self.deallocate();
-        }
+        panic!("PAGE");
     }
 }
 
@@ -463,8 +476,7 @@ impl<T: Sized> Pool<T> {
         self.npages.set(self.npages.get() - to_drop.len());
 
         for page in to_drop.iter().rev() {
-            // Invoke Page::drop
-            unsafe { std::ptr::drop_in_place(*page) }
+            drop_page(*page)
         }
     }
 
@@ -504,9 +516,7 @@ impl<T> Drop for Pool<T> {
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
             let next_next = next_ref.next.get();
-            unsafe {
-                std::ptr::drop_in_place(next);
-            }
+            drop_page(next);
             next = next_next;
         }
     }

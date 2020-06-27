@@ -232,16 +232,6 @@ impl<T> Page<T> {
             std::ptr::drop_in_place(block.value.get());
         }
 
-        if !page.in_free_list {
-            page.in_free_list = true;
-
-            if let Some(arena_free_list) = page.arena_free_list.upgrade() {
-                let current = arena_free_list.get();
-                page.next_free.set(current);
-                arena_free_list.set(page_ptr);
-            };
-        }
-
         let index_in_page = block.page.index_block();
         page.bitfield |= 1 << index_in_page;
 
@@ -251,6 +241,16 @@ impl<T> Page<T> {
             // Deallocate it
             Page::<T>::deallocate_page(page_ptr);
             return;
+        }
+
+        if !page.in_free_list {
+            page.in_free_list = true;
+
+            if let Some(arena_free_list) = page.arena_free_list.upgrade() {
+                let current = arena_free_list.get();
+                page.next_free.set(current);
+                arena_free_list.set(page_ptr);
+            };
         }
     }
 }

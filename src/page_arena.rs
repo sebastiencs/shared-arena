@@ -151,6 +151,23 @@ impl<T> PageArena<T> {
             std::ptr::drop_in_place(block.value.get());
         }
 
+        let bit = 1 << block.page.index_block();
+
+        // We set our bit to mark the block as free.
+        // fetch_add is faster than fetch_or (xadd vs cmpxchg), and
+        // we're sure to be the only thread to set this bit.
+        let old_bitfield = page.bitfield_atomic.fetch_add(bit, AcqRel);
+
+        let new_bitfield = old_bitfield | bit;
+
+        // The bit dedicated to the Arena is inversed (1 for used, 0 for free)
+        if new_bitfield == !0 {
+            // We were the last block/arena referencing this page
+            // Deallocate it
+            deallocate_page(page_ptr);
+            return;
+        }
+
         // Put our page in pending_free_list of the arena, if necessary
         if !page.in_free_list.load(Relaxed) {
             // Another thread might have changed self.in_free_list
@@ -172,22 +189,6 @@ impl<T> PageArena<T> {
                     }
                 }
             }
-        }
-
-        let bit = 1 << block.page.index_block();
-
-        // We set our bit to mark the block as free.
-        // fetch_add is faster than fetch_or (xadd vs cmpxchg), and
-        // we're sure to be the only thread to set this bit.
-        let old_bitfield = page.bitfield_atomic.fetch_add(bit, AcqRel);
-
-        let new_bitfield = old_bitfield | bit;
-
-        // The bit dedicated to the Arena is inversed (1 for used, 0 for free)
-        if new_bitfield == !0 {
-            // We were the last block/arena referencing this page
-            // Deallocate it
-            deallocate_page(page_ptr);
         }
     }
 }

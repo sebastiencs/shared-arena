@@ -79,6 +79,8 @@ jobs:
           command: test
           args: -Z build-std --target x86_64-unknown-linux-gnu
         env:
+          CC: "clang"
+          CXX: "clang++"
           CFLAGS: "-fsanitize=memory -fsanitize-memory-track-origins"
           CXXFLAGS: "-fsanitize=memory -fsanitize-memory-track-origins"
           RUSTFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"

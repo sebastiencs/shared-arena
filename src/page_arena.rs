@@ -47,6 +47,7 @@ impl<T> std::fmt::Debug for PageArena<T> {
 fn deallocate_page<T>(page: *mut PageArena<T>) {
     let layout = Layout::new::<PageArena<T>>();
     unsafe {
+        std::ptr::drop_in_place(&mut (*page).arena_pending_list as *mut _);
         dealloc(page as *mut PageArena<T> as *mut u8, layout);
     }
 }

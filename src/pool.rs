@@ -141,6 +141,7 @@ impl<T> Page<T> {
     fn deallocate_page(page: *mut Page<T>) {
         let layout = Layout::new::<Page<T>>();
         unsafe {
+            std::ptr::drop_in_place(&mut (*page).arena_free_list as *mut _);
             dealloc(page as *mut Page<T> as *mut u8, layout);
         }
     }

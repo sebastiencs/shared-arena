@@ -301,6 +301,14 @@ impl<T> PageSharedArena<T> {
             block.counter = AtomicUsize::new(0);
         }
 
+        #[cfg(test)]
+        for (index, block) in page.blocks.iter().enumerate() {
+            assert_eq!(block.page.index_block(), index);
+            assert_eq!(block.page.page_ptr(), page_copy);
+            assert_eq!(block.page.page_kind(), PageKind::SharedArena);
+            assert_eq!(block.counter.load(Relaxed), 0);
+        }
+
         page_ptr
     }
 

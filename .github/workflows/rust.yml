@@ -49,6 +49,7 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+          components: rust-src
       - name: Execute tests
         uses: actions-rs/cargo@v1
         with:
@@ -71,6 +72,7 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+          components: rust-src
       - name: Execute tests
         uses: actions-rs/cargo@v1
         with:

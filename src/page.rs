@@ -106,6 +106,8 @@ impl PageTaggedPtr {
     pub(crate) fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
         let tag = Self::make_tag(index, kind);
 
+        assert_eq!(page_ptr, page_ptr & 0x00FFFFFFFFFFFFFF, "{:064b} {:064b}", page_ptr, page_ptr & 0x00FFFFFFFFFFFFFF);
+
         PageTaggedPtr {
             data: (page_ptr & !(0b11111111 << 56)) | (tag << 56)
         }
@@ -399,20 +401,22 @@ mod tests {
 
     #[test]
     fn page_tagged_ptr() {
+        let fake_ptr = 0x00FFFFFFFFFFFFFF;
+
         for index_block in 0..64 {
-            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::SharedArena);
+            let tagged_ptr = PageTaggedPtr::new(fake_ptr, index_block, PageKind::SharedArena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::SharedArena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::Arena);
+            let tagged_ptr = PageTaggedPtr::new(fake_ptr, index_block, PageKind::Arena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::Arena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(!0, index_block, PageKind::Pool);
+            let tagged_ptr = PageTaggedPtr::new(fake_ptr, index_block, PageKind::Pool);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
             assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
@@ -440,7 +444,7 @@ mod tests {
 
     #[test]
     fn page_tagged_ptr_debug() {
-        let tagged_ptr = PageTaggedPtr::new(!0, 64, PageKind::SharedArena);
+        let tagged_ptr = PageTaggedPtr::new(0x00FFFFFFFFFFFFFF, 64, PageKind::SharedArena);
         println!("{:?} {:?}", tagged_ptr.clone(), PageKind::Arena);
 
         let tagged_ptr_2 = tagged_ptr;

@@ -69,7 +69,9 @@ impl<T> Block<T> {
 #[cfg(target_pointer_width = "64")]
 #[derive(Copy, Clone)]
 pub struct PageTaggedPtr {
-    pub data: usize
+    pub data: usize,
+    #[cfg(test)]
+    pub real_ptr: usize
 }
 
 #[cfg(not(target_pointer_width = "64"))]
@@ -109,7 +111,9 @@ impl PageTaggedPtr {
         assert_eq!(page_ptr, page_ptr & 0x00FFFFFFFFFFFFFF, "{:064b} {:064b}", page_ptr, page_ptr & 0x00FFFFFFFFFFFFFF);
 
         PageTaggedPtr {
-            data: (page_ptr & !(0b11111111 << 56)) | (tag << 56)
+            data: (page_ptr & !(0b11111111 << 56)) | (tag << 56),
+            #[cfg(test)]
+            real_ptr: page_ptr
         }
     }
 
@@ -136,6 +140,10 @@ impl PageTaggedPtr {
     #[cfg(target_pointer_width = "64")]
     pub(crate) fn page_ptr<T>(self) -> NonNull<T> {
         let ptr = ((self.data << 8) as isize >> 8) as *mut T;
+
+        #[cfg(test)]
+        assert_eq!(self.real_ptr, ptr as usize, "{:064b} {:064b}", self.real_ptr, ptr as usize);
+
         match NonNull::new(ptr) {
             Some(ptr) => ptr,
             None => panic!("Invalid pointer: '{:064b}'", self.data)
@@ -401,24 +409,24 @@ mod tests {
 
     #[test]
     fn page_tagged_ptr() {
-        let fake_ptr = 0x00FFFFFFFFFFFFFF;
+        let real_ptr = Box::into_raw(Box::new(1));
 
         for index_block in 0..64 {
-            let tagged_ptr = PageTaggedPtr::new(fake_ptr, index_block, PageKind::SharedArena);
+            let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, index_block, PageKind::SharedArena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
-            assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(ptr, real_ptr as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::SharedArena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(fake_ptr, index_block, PageKind::Arena);
+            let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, index_block, PageKind::Arena);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
-            assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(ptr, real_ptr as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::Arena);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
-            let tagged_ptr = PageTaggedPtr::new(fake_ptr, index_block, PageKind::Pool);
+            let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, index_block, PageKind::Pool);
             let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
-            assert_eq!(ptr, !0 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(ptr, real_ptr as *mut _, "{:064b}", ptr as usize);
             assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
             assert_eq!(tagged_ptr.index_block(), index_block);
 
@@ -440,11 +448,15 @@ mod tests {
             assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
             assert_eq!(tagged_ptr.index_block(), index_block);
         }
+
+        unsafe { Box::from_raw(real_ptr) };
     }
 
     #[test]
     fn page_tagged_ptr_debug() {
-        let tagged_ptr = PageTaggedPtr::new(0x00FFFFFFFFFFFFFF, 64, PageKind::SharedArena);
+        let real_ptr = Box::into_raw(Box::new(1));
+
+        let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, 64, PageKind::SharedArena);
         println!("{:?} {:?}", tagged_ptr.clone(), PageKind::Arena);
 
         let tagged_ptr_2 = tagged_ptr;
@@ -452,6 +464,8 @@ mod tests {
 
         assert!(tagged_ptr.data == tagged_ptr_2.data);
         assert!(tagged_ptr.data == tagged_ptr_3.data);
+
+        unsafe { Box::from_raw(real_ptr) };
     }
 
     #[test]
@@ -464,7 +478,11 @@ mod tests {
         let mut block = super::Block {
             value: UnsafeCell::new(1),
             counter: AtomicUsize::new(1),
-            page: super::PageTaggedPtr { data: !0 },
+            page: super::PageTaggedPtr {
+                data: !0,
+                #[cfg(test)]
+                real_ptr: !0
+            },
         };
 
         super::Block::drop_block(NonNull::from(&mut block));
@@ -473,6 +491,10 @@ mod tests {
     #[test]
     #[should_panic]
     fn invalid_tagged_ptr() {
-        super::PageKind::from(super::PageTaggedPtr { data: !0 });
+        super::PageKind::from(super::PageTaggedPtr {
+            data: !0,
+            #[cfg(test)]
+            real_ptr: !0
+        });
     }
 }

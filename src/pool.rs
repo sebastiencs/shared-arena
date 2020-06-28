@@ -736,7 +736,11 @@ mod tests {
         let mut block = super::Block {
             value: UnsafeCell::new(1),
             counter: 1,
-            page: super::PageTaggedPtr { data: !0 },
+            page: super::PageTaggedPtr {
+                data: !0,
+                #[cfg(test)]
+                real_ptr: !0
+            },
         };
 
         super::Block::drop_block(NonNull::from(&mut block));

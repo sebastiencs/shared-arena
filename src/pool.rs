@@ -739,7 +739,11 @@ mod tests {
             page: super::PageTaggedPtr {
                 data: !0,
                 #[cfg(test)]
-                real_ptr: !0
+                real_ptr: !0,
+                #[cfg(test)]
+                real_index: 0,
+                #[cfg(test)]
+                real_kind: super::PageKind::Arena,
             },
         };
 

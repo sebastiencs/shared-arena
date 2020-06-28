@@ -43,7 +43,7 @@ pub struct Block<T> {
     ///   - PageKind
     /// Read only and initialized on Page creation.
     /// Doesn't need to be atomic.
-    pub page: PageTaggedPtr,
+    pub(crate) page: PageTaggedPtr,
 }
 
 impl<T> Block<T> {
@@ -68,10 +68,14 @@ impl<T> Block<T> {
 
 #[cfg(target_pointer_width = "64")]
 #[derive(Copy, Clone)]
-pub struct PageTaggedPtr {
+pub(crate) struct PageTaggedPtr {
     pub data: usize,
     #[cfg(test)]
-    pub real_ptr: usize
+    pub real_ptr: usize,
+    #[cfg(test)]
+    pub real_index: usize,
+    #[cfg(test)]
+    pub real_kind: PageKind,
 }
 
 #[cfg(not(target_pointer_width = "64"))]
@@ -113,7 +117,11 @@ impl PageTaggedPtr {
         PageTaggedPtr {
             data: (page_ptr & !(0b11111111 << 56)) | (tag << 56),
             #[cfg(test)]
-            real_ptr: page_ptr
+            real_ptr: page_ptr,
+            #[cfg(test)]
+            real_index: index,
+            #[cfg(test)]
+            real_kind: kind
         }
     }
 
@@ -156,7 +164,12 @@ impl PageTaggedPtr {
     }
 
     pub(crate) fn page_kind(self) -> PageKind {
-        PageKind::from(self)
+        let kind = PageKind::from(self);
+
+        #[cfg(test)]
+        assert_eq!(kind, self.real_kind);
+
+        kind
     }
 
     pub(crate) fn index_block(self) -> usize {
@@ -165,11 +178,16 @@ impl PageTaggedPtr {
         #[cfg(not(target_pointer_width = "64"))]
         let rotate = 0;
 
-        (self.data >> rotate) & 0b111111
+        let index = (self.data >> rotate) & 0b111111;
+
+        #[cfg(test)]
+        assert_eq!(index, self.real_index, "{:064b}", self.data);
+
+        index
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PageKind {
     SharedArena = 0,
     Arena = 1,
@@ -456,7 +474,7 @@ mod tests {
     fn page_tagged_ptr_debug() {
         let real_ptr = Box::into_raw(Box::new(1));
 
-        let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, 64, PageKind::SharedArena);
+        let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, 63, PageKind::Arena);
         println!("{:?} {:?}", tagged_ptr.clone(), PageKind::Arena);
 
         let tagged_ptr_2 = tagged_ptr;
@@ -481,7 +499,11 @@ mod tests {
             page: super::PageTaggedPtr {
                 data: !0,
                 #[cfg(test)]
-                real_ptr: !0
+                real_ptr: !0,
+                #[cfg(test)]
+                real_index: 0,
+                #[cfg(test)]
+                real_kind: PageKind::Arena,
             },
         };
 
@@ -494,7 +516,11 @@ mod tests {
         super::PageKind::from(super::PageTaggedPtr {
             data: !0,
             #[cfg(test)]
-            real_ptr: !0
+            real_ptr: !0,
+            #[cfg(test)]
+            real_index: 0,
+            #[cfg(test)]
+            real_kind: PageKind::SharedArena,
         });
     }
 }

@@ -100,7 +100,7 @@ use test::Bencher;
 //     });
 // }
 
-use shared_arena::{SharedArena, ArenaBox, Pool};
+use shared_arena::{SharedArena, Arena, ArenaBox, Pool};
 //use rustorrent::memory_pool::{Arena, SharedArena, ArenaBox, Pool};
 
 #[derive(Copy, Clone)]
@@ -235,30 +235,30 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
         // let mut vec = Vec::with_capacity(10_000_000);
 
-        // group.bench_with_input(BenchmarkId::new("LocalArena", i), &i, move |b, n| {
-        //     let n = *n;
+        group.bench_with_input(BenchmarkId::new("Arena", i), &i, move |b, n| {
+            let n = *n;
 
-        //     b.iter_custom(move |iters| {
-        //         let mut duration = Duration::new(0, 0);
+            b.iter_custom(move |iters| {
+                let mut duration = Duration::new(0, 0);
 
-        //         for _ in 0..iters {
-        //             //println!("NEW {}", n);
+                for _ in 0..iters {
+                    //println!("NEW {}", n);
 
-        //             let mut arena = LocalArena::<MyStruct>::with_capacity(n);
-        //             let mut vec = Vec::with_capacity(n);
+                    let mut arena = Arena::<MyStruct>::with_capacity(n);
+                    let mut vec = Vec::with_capacity(n);
 
-        //             let start = Instant::now();
-        //             for _ in 0..n {
-        //                 let res = arena.alloc(black_box(MyStruct::default()));
-        //                 vec.push(res);
-        //             }
-        //             duration += start.elapsed();
-        //             arena.clean();
-        //         }
+                    let start = Instant::now();
+                    for _ in 0..n {
+                        let res = arena.alloc(black_box(MyStruct::default()));
+                        vec.push(res);
+                    }
+                    duration += start.elapsed();
+                    // arena.clean();
+                }
 
-        //         duration
-        //     });
-        // });
+                duration
+            });
+        });
 
         // group.bench_with_input(BenchmarkId::new("RustBox", i), &i, move |b, n| {
         //     let n = *n;
@@ -284,27 +284,27 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
         use std::time::{Instant, Duration};
 
-        // group.bench_with_input(BenchmarkId::new("Pool", i), &i, move |b, n| {
-        //     let n = *n;
+        group.bench_with_input(BenchmarkId::new("Pool", i), &i, move |b, n| {
+            let n = *n;
 
-        //     b.iter_custom(move |iters| {
-        //         let mut duration = Duration::new(0, 0);
+            b.iter_custom(move |iters| {
+                let mut duration = Duration::new(0, 0);
 
-        //         for _ in 0..iters {
-        //             let mut arena = Pool::<MyStruct>::with_capacity(n);
-        //             let mut vec = Vec::with_capacity(n);
+                for _ in 0..iters {
+                    let mut arena = Pool::<MyStruct>::with_capacity(n);
+                    let mut vec = Vec::with_capacity(n);
 
-        //             let start = Instant::now();
-        //             for _ in 0..n {
-        //                 let res = arena.alloc(black_box(MyStruct::default()));
-        //                 vec.push(res);
-        //             }
-        //             duration += start.elapsed();
-        //         }
+                    let start = Instant::now();
+                    for _ in 0..n {
+                        let res = arena.alloc(black_box(MyStruct::default()));
+                        vec.push(res);
+                    }
+                    duration += start.elapsed();
+                }
 
-        //         duration
-        //     });
-        // });
+                duration
+            });
+        });
 
         group.bench_with_input(BenchmarkId::new("SharedArena", i), &i, move |b, n| {
             let n = *n;

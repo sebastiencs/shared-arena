@@ -407,12 +407,19 @@ impl<T: Sized> SharedArena<T> {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).is_ok() {
+                    current_value.in_free_list.store(false, Release);
                     to_drop.push(current_value as *const _ as *mut PageSharedArena<T>);
                 }
             } else {
                 current = next;
             }
         }
+
+        // Check that the page hasn't been used by another thread
+        to_drop.retain(|page| {
+            let page_ref = unsafe { page.as_ref().unwrap() };
+            page_ref.bitfield.load(Acquire) == !0
+        });
 
         let mut current: &AtomicPtr<PageSharedArena<T>> = &self.full_list;
 
@@ -432,6 +439,10 @@ impl<T: Sized> SharedArena<T> {
         }
 
         for page in &to_drop {
+            let page_ref = unsafe { page.as_ref().unwrap() };
+
+            assert!(page_ref.bitfield.load(Acquire) == !0);
+
             drop_page(*page);
         }
 

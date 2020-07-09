@@ -20,6 +20,8 @@ case "$1" in
         CMD="cargo test --target $TARGET"
         ;;
     memory)
+        export CC="clang"
+        export CXX="clang++"
         export CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
         export CXXFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
         export RUSTFLAGS="-Zsanitizer=memory -Zsanitizer-memory-track-origins"
@@ -35,5 +37,6 @@ esac
 
 for i in {1..100}
 do
+    echo "$i/100"
     $CMD
 done

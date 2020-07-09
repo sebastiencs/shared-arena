@@ -134,17 +134,20 @@ impl<T: Sized> SharedArena<T> {
             // So instead of looping on self.free (which will stay null until allocation
             // is done), we check for pages on self.pending_free.
 
-            // let mut next = unsafe { self.pending_free_list.load(Acquire).as_mut() };
+            let mut next = unsafe { self.pending_free_list.load(Acquire).as_mut() };
 
-            // while let Some(page) = next {
-            //     if self.shrinking.load(Acquire) {
-            //         break;
-            //     }
-            //     if let Some(block) = page.acquire_free_block() {
-            //         return block;
-            //     }
-            //     next = unsafe { page.next_free.load(Acquire).as_mut() };
-            // }
+            while let Some(page) = next {
+                if self.shrinking.load(Acquire) {
+                    break;
+                }
+                if let Some(block) = page.acquire_free_block() {
+                    return block;
+                }
+                if self.shrinking.load(Acquire) {
+                    break;
+                }
+                next = unsafe { page.next_free.load(Acquire).as_mut() };
+            }
         }
     }
 
@@ -442,7 +445,7 @@ impl<T: Sized> SharedArena<T> {
         }
 
         for page in &to_drop {
-            let page_ref = unsafe { page.as_ref().unwrap() };
+            // let page_ref = unsafe { page.as_ref().unwrap() };
 
             // assert!(page_ref.bitfield.load(Acquire) == !0);
 

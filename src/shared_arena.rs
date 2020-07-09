@@ -137,6 +137,9 @@ impl<T: Sized> SharedArena<T> {
             let mut next = unsafe { self.pending_free_list.load(Acquire).as_mut() };
 
             while let Some(page) = next {
+                if self.shrinking.load(Acquire) {
+                    break;
+                }
                 if let Some(block) = page.acquire_free_block() {
                     return block;
                 }

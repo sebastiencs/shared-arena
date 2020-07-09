@@ -2,6 +2,8 @@
 
 set -xe
 
+TARGET=$(rustc -Z unstable-options --print target-spec-json | jq -r .\"llvm-target\")
+
 case "$1" in
     address)
         export CFLAGS="-fsanitize=address"
@@ -9,13 +11,13 @@ case "$1" in
         export RUSTFLAGS="-Zsanitizer=address"
         export RUSTDOCFLAGS="-Zsanitizer=address"
 
-        CMD="cargo test -Z build-std --target x86_64-unknown-linux-gnu"
+        CMD="cargo test -Z build-std --target $TARGET"
         ;;
     leak)
         export RUSTFLAGS="-Zsanitizer=leak"
         export RUSTDOCFLAGS="-Zsanitizer=leak"
 
-        CMD="cargo test --target x86_64-unknown-linux-gnu"
+        CMD="cargo test --target $TARGET"
         ;;
     memory)
         export CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
@@ -23,7 +25,7 @@ case "$1" in
         export RUSTFLAGS="-Zsanitizer=memory -Zsanitizer-memory-track-origins"
         export RUSTDOCFLAGS="-Zsanitizer=memory -Zsanitizer-memory-track-origins"
 
-        CMD="cargo -Z build-std --target x86_64-unknown-linux-gnu"
+        CMD="cargo test -Z build-std --target $TARGET"
         ;;
     *)
         echo -e "Available commands: address, leak, memory\n"

@@ -444,7 +444,7 @@ impl<T: Sized> SharedArena<T> {
         for page in &to_drop {
             let page_ref = unsafe { page.as_ref().unwrap() };
 
-            assert!(page_ref.bitfield.load(Acquire) == !0);
+            // assert!(page_ref.bitfield.load(Acquire) == !0);
 
             drop_page(*page);
         }

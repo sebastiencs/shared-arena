@@ -50,16 +50,18 @@ jobs:
           toolchain: nightly
           override: true
           components: rust-src
-      - name: Execute tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -Z build-std --target x86_64-unknown-linux-gnu
-        env:
-          CFLAGS: "-fsanitize=address"
-          CXXFLAGS: "-fsanitize=address"
-          RUSTFLAGS: "-Zsanitizer=address"
-          RUSTDOCFLAGS: "-Zsanitizer=address"
+      - name: Run Address Sanitizer
+        run: ./sanitizer.sh address
+      # - name: Execute tests
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: test
+      #     args: -Z build-std --target x86_64-unknown-linux-gnu
+      #   env:
+      #     CFLAGS: "-fsanitize=address"
+      #     CXXFLAGS: "-fsanitize=address"
+      #     RUSTFLAGS: "-Zsanitizer=address"
+      #     RUSTDOCFLAGS: "-Zsanitizer=address"
 
   leak_sanitizer:
     name: LeakSanitizer
@@ -73,14 +75,16 @@ jobs:
           toolchain: nightly
           override: true
           components: rust-src
-      - name: Execute tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --target x86_64-unknown-linux-gnu
-        env:
-          RUSTFLAGS: "-Zsanitizer=leak"
-          RUSTDOCFLAGS: "-Zsanitizer=leak"
+      - name: Run Leak Sanitizer
+        run: ./sanitizer.sh leak
+      # - name: Execute tests
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: test
+      #     args: --target x86_64-unknown-linux-gnu
+      #   env:
+      #     RUSTFLAGS: "-Zsanitizer=leak"
+      #     RUSTDOCFLAGS: "-Zsanitizer=leak"
 
   mem_sanitizer:
     name: MemorySanitizer
@@ -94,18 +98,20 @@ jobs:
           toolchain: nightly
           override: true
           components: rust-src
-      - name: Execute tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -Z build-std --target x86_64-unknown-linux-gnu
-        env:
-          CC: "clang"
-          CXX: "clang++"
-          CFLAGS: "-fsanitize=memory -fsanitize-memory-track-origins"
-          CXXFLAGS: "-fsanitize=memory -fsanitize-memory-track-origins"
-          RUSTFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"
-          RUSTDOCFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"
+      - name: Run Memory Sanitizer
+        run: ./sanitizer.sh memory
+      # - name: Execute tests
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: test
+      #     args: -Z build-std --target x86_64-unknown-linux-gnu
+      #   env:
+      #     CC: "clang"
+      #     CXX: "clang++"
+      #     CFLAGS: "-fsanitize=memory -fsanitize-memory-track-origins"
+      #     CXXFLAGS: "-fsanitize=memory -fsanitize-memory-track-origins"
+      #     RUSTFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"
+      #     RUSTDOCFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"
 
   lint:
     name: Clippy

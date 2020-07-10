@@ -29,8 +29,14 @@ case "$1" in
 
         CMD="cargo test -Z build-std --target $TARGET"
         ;;
+    valgrind)
+        cargo build --tests
+
+        EXECUTABLE=$(find target/debug/deps/ -type f -executable -print)
+        CMD="valgrind $EXECUTABLE"
+        ;;
     *)
-        echo -e "Available commands: address, leak, memory\n"
+        echo -e "Available commands: address, leak, memory, valgrind\n"
         echo -e "Example:\n\t$0 leak"
         exit 1
 esac

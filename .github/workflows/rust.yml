@@ -113,6 +113,23 @@ jobs:
       #     RUSTFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"
       #     RUSTDOCFLAGS: "-Zsanitizer=memory -Zsanitizer-memory-track-origins"
 
+  valgrind:
+    name: Valgrind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rust-src
+      - name: Install Valgrind
+        run: sudo apt install -y valgrind
+      - name: Run Valgrind
+        run: ./sanitizer.sh valgrind
+
   lint:
     name: Clippy
     runs-on: ubuntu-latest

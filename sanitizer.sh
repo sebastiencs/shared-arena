@@ -4,6 +4,10 @@ set -xe
 
 TARGET=$(rustc -Z unstable-options --print target-spec-json | jq -r .\"llvm-target\")
 
+if [ "$2" == "release" ]; then
+    RELEASE_FLAG="--release"
+fi
+
 case "$1" in
     address)
         export CFLAGS="-fsanitize=address"
@@ -11,13 +15,13 @@ case "$1" in
         export RUSTFLAGS="-Zsanitizer=address"
         export RUSTDOCFLAGS="-Zsanitizer=address"
 
-        CMD="cargo test -Z build-std --target $TARGET"
+        CMD="cargo test -Z build-std --target $TARGET $RELEASE_FLAG"
         ;;
     leak)
         export RUSTFLAGS="-Zsanitizer=leak"
         export RUSTDOCFLAGS="-Zsanitizer=leak"
 
-        CMD="cargo test --target $TARGET"
+        CMD="cargo test --target $TARGET $RELEASE_FLAG"
         ;;
     memory)
         export CC="clang"
@@ -27,13 +31,13 @@ case "$1" in
         export RUSTFLAGS="-Zsanitizer=memory -Zsanitizer-memory-track-origins"
         export RUSTDOCFLAGS="-Zsanitizer=memory -Zsanitizer-memory-track-origins"
 
-        CMD="cargo test -Z build-std --target $TARGET"
+        CMD="cargo test -Z build-std --target $TARGET $RELEASE_FLAG"
         ;;
     valgrind)
-        cargo build --tests
+        cargo build --tests $RELEASE_FLAG
 
-        EXECUTABLE=$(find target/debug/deps/shared_arena* -type f -executable -print)
-        CMD="valgrind $EXECUTABLE"
+        EXECUTABLE=$(find target/${2:-debug}/deps/shared_arena* -type f -executable -print)
+        CMD="valgrind --error-exitcode=1 $EXECUTABLE"
         ;;
     *)
         echo -e "Available commands: address, leak, memory, valgrind\n"

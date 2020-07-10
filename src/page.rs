@@ -164,12 +164,10 @@ impl PageTaggedPtr {
     }
 
     pub(crate) fn page_kind(self) -> PageKind {
-        let kind = PageKind::from(self);
-
         #[cfg(test)]
-        assert_eq!(kind, self.real_kind);
+        assert_eq!(PageKind::from(self), self.real_kind);
 
-        kind
+        PageKind::from(self)
     }
 
     pub(crate) fn index_block(self) -> usize {
@@ -178,12 +176,10 @@ impl PageTaggedPtr {
         #[cfg(not(target_pointer_width = "64"))]
         let rotate = 0;
 
-        let index = (self.data >> rotate) & 0b111111;
-
         #[cfg(test)]
-        assert_eq!(index, self.real_index, "{:064b}", self.data);
+        assert_eq!((self.data >> rotate) & 0b111111, self.real_index, "{:064b}", self.data);
 
-        index
+        (self.data >> rotate) & 0b111111
     }
 }
 

@@ -84,7 +84,7 @@ jobs:
       - name: Install Valgrind
         run: sudo apt install -y valgrind
       - name: Run Valgrind
-        run: ./sanitizer.sh valgrind $ {{ matrix.mode }}
+        run: ./sanitizer.sh valgrind ${{ matrix.mode }}
 
   # addr_sanitizer:
   #   name: AddressSanitizer

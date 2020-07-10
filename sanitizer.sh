@@ -32,7 +32,7 @@ case "$1" in
     valgrind)
         cargo build --tests
 
-        EXECUTABLE=$(find target/debug/deps/ -type f -executable -print)
+        EXECUTABLE=$(find target/debug/deps/shared_arena* -type f -executable -print)
         CMD="valgrind $EXECUTABLE"
         ;;
     *)

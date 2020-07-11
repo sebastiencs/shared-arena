@@ -983,14 +983,14 @@ mod tests {
                     if (i + 1) % 5 == 0 {
                         values.remove(rand);
                     }
-                    if with_shrink && rand % 200 == 0 {
-                        if arena.shrink_to_fit() {
-                            nshrink += 1;
-                        }
-                    }
+                //     if with_shrink && rand % 200 == 0 {
+                //         if arena.shrink_to_fit() {
+                //             nshrink += 1;
+                //         }
+                //     }
                 }
 
-                println!("NSHRINK: {}", nshrink);
+//                println!("NSHRINK: {}", nshrink);
             }));
         }
 

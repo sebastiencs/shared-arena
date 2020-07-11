@@ -56,10 +56,9 @@ jobs:
       - name: Install Clang
         run: |
             apt-get install -y clang-10 llvm-10-dev
-            rm -rf /usr/bin/clang /usr/bin/clang++ /usr/bin/llvm-symbolizer
-            ln -s /usr/bin/clang-10 /usr/bin/clang
-            ln -s /usr/bin/clang++-10 /usr/bin/clang++
-            ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
+            ln -fs /usr/bin/clang-10 /usr/bin/clang
+            ln -fs /usr/bin/clang++-10 /usr/bin/clang++
+            ln -fs /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:

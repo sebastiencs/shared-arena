@@ -127,27 +127,29 @@ impl<T: Sized> SharedArena<T> {
                 continue;
             };
 
-            // This block is reached if an another thread is allocating or replacing
-            // self.pending_free (the block just above).
-            // Since allocating might take a while, some page might become free during
-            // this time.
-            // So instead of looping on self.free (which will stay null until allocation
-            // is done), we check for pages on self.pending_free.
+            std::thread::yield_now();
 
-            let mut next = unsafe { self.pending_free_list.load(Acquire).as_mut() };
+            // // This block is reached if an another thread is allocating or replacing
+            // // self.pending_free (the block just above).
+            // // Since allocating might take a while, some page might become free during
+            // // this time.
+            // // So instead of looping on self.free (which will stay null until allocation
+            // // is done), we check for pages on self.pending_free.
 
-            while let Some(page) = next {
-                if self.shrinking.load(Acquire) {
-                    break;
-                }
-                if let Some(block) = page.acquire_free_block() {
-                    return block;
-                }
-                if self.shrinking.load(Acquire) {
-                    break;
-                }
-                next = unsafe { page.next_free.load(Acquire).as_mut() };
-            }
+            // let mut next = unsafe { self.pending_free_list.load(Acquire).as_mut() };
+
+            // while let Some(page) = next {
+            //     if self.shrinking.load(Acquire) {
+            //         break;
+            //     }
+            //     if let Some(block) = page.acquire_free_block() {
+            //         return block;
+            //     }
+            //     if self.shrinking.load(Acquire) {
+            //         break;
+            //     }
+            //     next = unsafe { page.next_free.load(Acquire).as_mut() };
+            // }
         }
     }
 

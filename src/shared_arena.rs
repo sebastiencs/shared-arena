@@ -485,6 +485,12 @@ impl<T: Sized> SharedArena<T> {
         let mut current: &AtomicPtr<PageSharedArena<T>> = &AtomicPtr::new(self.free_list.swap(std::ptr::null_mut(), AcqRel));
         let start = current;
 
+        let narenas = Arc::strong_count(&self.pending_free_list);
+
+        for _ in 0..narenas {
+            std::thread::yield_now();
+        }
+
         let mut to_drop = Vec::with_capacity(self.npages.load(Relaxed));
 
         // We loop on the free list to get all pages that have 0 reference to

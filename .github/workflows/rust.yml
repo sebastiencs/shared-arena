@@ -207,10 +207,8 @@ jobs:
         name: Execute Miri
         with:
           command: miri
-          # Ignore leaks because of AtomicPtr:
-          # https://github.com/rust-lang/miri/issues/1318
           # Disable isolation to get randomness
-          args: test --all-features -- -Zmiri-ignore-leaks -Zmiri-disable-isolation
+          args: test --all-features -- -Zmiri-disable-isolation
 
   build:
     name: Build Cross Platforms

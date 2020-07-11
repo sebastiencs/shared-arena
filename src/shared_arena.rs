@@ -20,6 +20,7 @@ pub struct SharedArena<T: Sized> {
     npages: AtomicUsize,
     writer: AtomicBool,
     shrinking: AtomicBool,
+    to_free: AtomicPtr<Vec<*mut PageSharedArena<T>>>
 }
 
 unsafe impl<T: Sized> Send for SharedArena<T> {}
@@ -119,6 +120,8 @@ impl<T: Sized> SharedArena<T> {
                         let pending = self.pending_free_list.swap(std::ptr::null_mut(), AcqRel);
                         let old = self.free_list.swap(pending, Release);
                         assert!(old.is_null(), "NOT NULL");
+                    // } else if !self.to_free.load(Acquire).is_null() {
+
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
 
@@ -181,7 +184,8 @@ impl<T: Sized> SharedArena<T> {
             pending_free_list: pending_free,
             full_list: AtomicPtr::new(first.as_ptr()),
             writer: AtomicBool::new(false),
-            shrinking: AtomicBool::new(false)
+            shrinking: AtomicBool::new(false),
+            to_free: AtomicPtr::new(std::ptr::null_mut())
         }
     }
 
@@ -485,11 +489,11 @@ impl<T: Sized> SharedArena<T> {
         let mut current: &AtomicPtr<PageSharedArena<T>> = &AtomicPtr::new(self.free_list.swap(std::ptr::null_mut(), AcqRel));
         let start = current;
 
-        let narenas = Arc::strong_count(&self.pending_free_list);
+        // let narenas = Arc::strong_count(&self.pending_free_list);
 
-        for _ in 0..narenas {
-            std::thread::yield_now();
-        }
+        // for _ in 0..narenas {
+        //     std::thread::yield_now();
+        // }
 
         let mut to_drop = Vec::with_capacity(self.npages.load(Relaxed));
 
@@ -534,18 +538,28 @@ impl<T: Sized> SharedArena<T> {
             }
         }
 
-        for page in &to_drop {
-            // let page_ref = unsafe { page.as_ref().unwrap() };
+        let nfreed = to_drop.len();
 
-            // assert!(page_ref.bitfield.load(Acquire) == !0);
-
-            drop_page(*page);
+        if let Some(to_free) = unsafe { self.to_free.load(Acquire).as_mut() } {
+            to_free.append(&mut to_drop);
+        } else {
+            let ptr = Box::new(to_drop);
+            let old = self.to_free.swap(Box::into_raw(ptr), AcqRel);
+            assert!(old.is_null(), "OLD NOT NULL");
         }
+
+        // for page in &to_drop {
+        //     // let page_ref = unsafe { page.as_ref().unwrap() };
+
+        //     // assert!(page_ref.bitfield.load(Acquire) == !0);
+
+        //     drop_page(*page);
+        // }
 
         let old = self.free_list.swap(start.load(Relaxed), Release);
         assert!(old.is_null(), "OLD NOT NULL");
 
-        self.npages.fetch_sub(to_drop.len(), Release);
+        self.npages.fetch_sub(nfreed, Release);
 
         self.shrinking.store(false, Release);
 
@@ -641,6 +655,13 @@ impl<T: Sized> SharedArena<T> {
 
 impl<T> Drop for SharedArena<T> {
     fn drop(&mut self) {
+        if let Some(to_free) = unsafe { self.to_free.load(Relaxed).as_mut() } {
+            let to_free = unsafe { Box::from_raw(to_free) };
+            for page in &*to_free {
+                drop_page(*page);
+            }
+        }
+
         let mut next = self.full_list.load(Relaxed);
 
         while let Some(next_ref) = unsafe { next.as_mut() } {

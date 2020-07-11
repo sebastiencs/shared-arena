@@ -972,7 +972,7 @@ mod tests {
             handles.push(thread::spawn(move|| {
                 c.wait();
 
-                arena.shrink_to_fit();
+//                arena.shrink_to_fit();
 
                 let mut nshrink = 0;
 
@@ -983,11 +983,11 @@ mod tests {
                     if (i + 1) % 5 == 0 {
                         values.remove(rand);
                     }
-                //     if with_shrink && rand % 200 == 0 {
-                //         if arena.shrink_to_fit() {
-                //             nshrink += 1;
-                //         }
-                //     }
+                    // if with_shrink && rand % 200 == 0 {
+                    //     if arena.shrink_to_fit() {
+                    //         nshrink += 1;
+                    //     }
+                    // }
                 }
 
 //                println!("NSHRINK: {}", nshrink);

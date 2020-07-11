@@ -10,6 +10,7 @@ use static_assertions::const_assert;
 
 use crate::cache_line::CacheAligned;
 use crate::page_arena::PageArena;
+use crate::pool::Page as PagePool;
 
 // // https://stackoverflow.com/a/53646925
 // const fn max(a: usize, b: usize) -> usize {
@@ -60,7 +61,8 @@ impl<T> Block<T> {
                 PageArena::<T>::drop_block(page_ptr, block);
             }
             PageKind::Pool => {
-                panic!("Wrong PageTaggedPtr")
+                let page_ptr = block_ref.page.page_ptr::<PagePool<T>>();
+                PagePool::<T>::drop_block(page_ptr, block);
             }
         }
     }
@@ -70,12 +72,6 @@ impl<T> Block<T> {
 #[derive(Copy, Clone)]
 pub(crate) struct PageTaggedPtr {
     pub data: usize,
-    #[cfg(test)]
-    pub real_ptr: usize,
-    #[cfg(test)]
-    pub real_index: usize,
-    #[cfg(test)]
-    pub real_kind: PageKind,
 }
 
 #[cfg(not(target_pointer_width = "64"))]
@@ -116,12 +112,6 @@ impl PageTaggedPtr {
 
         PageTaggedPtr {
             data: (page_ptr & !(0b11111111 << 56)) | (tag << 56),
-            #[cfg(test)]
-            real_ptr: page_ptr,
-            #[cfg(test)]
-            real_index: index,
-            #[cfg(test)]
-            real_kind: kind
         }
     }
 
@@ -149,13 +139,7 @@ impl PageTaggedPtr {
     pub(crate) fn page_ptr<T>(self) -> NonNull<T> {
         let ptr = ((self.data << 8) as isize >> 8) as *mut T;
 
-        #[cfg(test)]
-        assert_eq!(self.real_ptr, ptr as usize, "{:064b} {:064b}", self.real_ptr, ptr as usize);
-
-        match NonNull::new(ptr) {
-            Some(ptr) => ptr,
-            None => panic!("Invalid pointer: '{:064b}'", self.data)
-        }
+        NonNull::new(ptr).expect("Invalid pointer")
     }
 
     #[cfg(not(target_pointer_width = "64"))]
@@ -164,9 +148,6 @@ impl PageTaggedPtr {
     }
 
     pub(crate) fn page_kind(self) -> PageKind {
-        #[cfg(test)]
-        assert_eq!(PageKind::from(self), self.real_kind);
-
         PageKind::from(self)
     }
 
@@ -175,9 +156,6 @@ impl PageTaggedPtr {
         let rotate = 56;
         #[cfg(not(target_pointer_width = "64"))]
         let rotate = 0;
-
-        #[cfg(test)]
-        assert_eq!((self.data >> rotate) & 0b111111, self.real_index, "{:064b}", self.data);
 
         (self.data >> rotate) & 0b111111
     }
@@ -295,14 +273,6 @@ impl<T> PageSharedArena<T> {
         for (index, block) in page.blocks.iter_mut().enumerate() {
             block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::SharedArena);
             block.counter = AtomicUsize::new(0);
-        }
-
-        #[cfg(test)]
-        for (index, block) in page.blocks.iter().enumerate() {
-            assert_eq!(block.page.index_block(), index);
-            assert_eq!(block.page.page_ptr(), page_copy);
-            assert_eq!(block.page.page_kind(), PageKind::SharedArena);
-            assert_eq!(block.counter.load(Relaxed), 0);
         }
 
         page_ptr
@@ -502,12 +472,6 @@ mod tests {
             counter: AtomicUsize::new(1),
             page: super::PageTaggedPtr {
                 data: !0,
-                #[cfg(test)]
-                real_ptr: !0,
-                #[cfg(test)]
-                real_index: 0,
-                #[cfg(test)]
-                real_kind: PageKind::Arena,
             },
         };
 
@@ -519,12 +483,6 @@ mod tests {
     fn invalid_tagged_ptr() {
         super::PageKind::from(super::PageTaggedPtr {
             data: !0,
-            #[cfg(test)]
-            real_ptr: !0,
-            #[cfg(test)]
-            real_index: 0,
-            #[cfg(test)]
-            real_kind: PageKind::SharedArena,
         });
     }
 }

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use super::page::{Block, PageSharedArena, BLOCK_PER_PAGE, drop_page};
 use super::arena_arc::ArenaArc;
 use super::arena_box::ArenaBox;
+use super::arena_rc::ArenaRc;
 
 /// An arena shareable across threads
 ///
@@ -363,6 +364,87 @@ impl<T: Sized> SharedArena<T> {
         }
 
         ArenaArc::new(block)
+    }
+
+    /// Writes a value in the arena, and returns an [`ArenaRc`]
+    /// pointing to that value.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::{ArenaRc, SharedArena};
+    ///
+    /// let arena = SharedArena::new();
+    /// let my_num: ArenaRc<u8> = arena.alloc_rc(0xFF);
+    /// ```
+    ///
+    /// [`ArenaRc`]: ./struct.ArenaRc.html
+    pub fn alloc_rc(&self, value: T) -> ArenaRc<T> {
+        let block = self.find_place();
+
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            ptr.write(value);
+        }
+
+        ArenaRc::new(block)
+    }
+
+    /// Finds an empty space in the arena and calls the function `initializer`
+    /// with its argument pointing to that space.
+    /// It returns an [`ArenaRc`] pointing to the newly initialized value.
+    ///
+    /// The difference with [`alloc_rc`] is that it has the benefit of
+    /// avoiding intermediate copies of the value.
+    ///
+    /// ## Safety
+    ///
+    /// It is the caller responsability to initialize properly the value.
+    /// When all [`ArenaRc`] pointing that value are dropped, the value
+    /// is also dropped. If the value is not initialized correctly, it will
+    /// drop an unitialized value, which is undefined behavior.
+    ///
+    /// This function is not marked as `unsafe` because the caller will have
+    /// to deal itself with [`MaybeUninit`].
+    ///
+    /// A bad usage of this function is `unsafe` and can lead to undefined
+    /// behavior !
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use shared_arena::{ArenaRc, SharedArena};
+    /// use std::ptr;
+    ///
+    /// #[derive(Copy, Clone)]
+    /// struct MyStruct {}
+    ///
+    /// let ref_struct: &MyStruct = &MyStruct {};
+    ///
+    /// let arena = SharedArena::new();
+    /// let my_struct: ArenaRc<MyStruct> = arena.alloc_in_place_rc(|place| {
+    ///     unsafe {
+    ///         // The type must be Copy to use ptr::copy
+    ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
+    ///     }
+    /// });
+    /// ```
+    ///
+    /// [`ArenaRc`]: ./struct.ArenaRc.html
+    /// [`alloc_rc`]: #method.alloc_rc
+    /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
+    pub fn alloc_in_place_rc<F>(&self, initializer: F) -> ArenaRc<T>
+    where
+        F: Fn(&mut MaybeUninit<T>)
+    {
+        let block = self.find_place();
+
+        unsafe {
+            let ptr = block.as_ref().value.get();
+            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+        }
+
+        ArenaRc::new(block)
     }
 
     /// Shrinks the capacity of the arena as much as possible.
@@ -801,11 +883,19 @@ mod tests {
         });
         assert!(*a == 102);
 
-        let a = arena.alloc(103);
+        let a = arena.alloc_in_place_rc(|place| unsafe {
+            ptr::copy(&103, place.as_mut_ptr(), 1);
+        });
         assert!(*a == 103);
 
-        let a = arena.alloc_arc(104);
+        let a = arena.alloc(104);
         assert!(*a == 104);
+
+        let a = arena.alloc_arc(105);
+        assert!(*a == 105);
+
+        let a = arena.alloc_rc(106);
+        assert!(*a == 106);
     }
 
     #[test]

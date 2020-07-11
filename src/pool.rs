@@ -1,37 +1,16 @@
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::Cell;
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 use std::mem::MaybeUninit;
+use std::sync::atomic::AtomicUsize;
 
-use super::page::{PageTaggedPtr, PageKind};
-
-// This module is a transpose of other modules without atomics
+use super::page::{PageTaggedPtr, PageKind, Block};
+use crate::arena_rc::ArenaRc;
 
 type Pointer<T> = Cell<*mut T>;
-
-#[repr(C)]
-struct Block<T> {
-    value: UnsafeCell<T>,
-    counter: usize,
-    page: PageTaggedPtr,
-}
-
-impl<T> Block<T> {
-    pub(crate) fn drop_block(block: NonNull<Block<T>>) {
-        let block_ref = unsafe { block.as_ref() };
-
-        match block_ref.page.page_kind() {
-            PageKind::Pool => {
-                let page_ptr = block_ref.page.page_ptr::<Page<T>>();
-                Page::<T>::drop_block(page_ptr, block);
-            }
-            x => panic!("Wrong PageTaggedPtr {:?}", x)
-        }
-    }
-}
 
 use super::page::{BLOCK_PER_PAGE, MASK_ARENA_BIT};
 
@@ -44,45 +23,6 @@ pub struct Page<T> {
     in_free_list: bool,
 }
 
-pub struct PoolRc<T> {
-    block: NonNull<Block<T>>,
-    // page: NonNull<Page<T>>,
-    _marker: PhantomData<*mut ()>
-}
-
-impl<T> PoolRc<T> {
-    fn new(mut block: NonNull<Block<T>>) -> PoolRc<T> {
-        let counter = &mut unsafe { block.as_mut() }.counter;
-        assert!(*counter == 0, "PoolRc: Counter not zero {}", counter);
-        *counter = 1;
-        PoolRc { block, _marker: PhantomData }
-    }
-}
-
-impl<T> std::ops::Deref for PoolRc<T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        unsafe { &*self.block.as_ref().value.get() }
-    }
-}
-
-/// Drop the PoolBox<T>
-///
-/// The value pointed by this PoolBox is also dropped
-impl<T> Drop for PoolRc<T> {
-    fn drop(&mut self) {
-        let block = unsafe { self.block.as_mut() };
-
-        // We decrement the reference counter
-        block.counter -= 1;
-
-        // We were the last reference
-        if block.counter == 0 {
-            Block::drop_block(self.block)
-        };
-    }
-}
-
 pub struct PoolBox<T> {
     block: NonNull<Block<T>>,
     _marker: PhantomData<*mut ()>
@@ -90,10 +30,13 @@ pub struct PoolBox<T> {
 
 impl<T> PoolBox<T> {
     fn new(mut block: NonNull<Block<T>>) -> PoolBox<T> {
-        let counter = &mut unsafe { block.as_mut() }.counter;
+        // PoolBox is not Send, so we can make the counter non-atomic
+        let counter_mut = unsafe { block.as_mut() }.counter.get_mut();
+
+        // let counter = &mut unsafe { block.as_mut() }.counter;
         // See ArenaBox<T>::new for why we touch the counter
-        assert!(*counter == 0, "PoolBox: Counter not zero {}", counter);
-        *counter = 1;
+        assert!(*counter_mut == 0, "PoolBox: Counter not zero {}", counter_mut);
+        *counter_mut = 1;
         PoolBox { block, _marker: PhantomData }
     }
 }
@@ -116,14 +59,16 @@ impl<T> std::ops::DerefMut for PoolBox<T> {
 /// The value pointed by this PoolBox is also dropped
 impl<T> Drop for PoolBox<T> {
     fn drop(&mut self) {
-        let block = unsafe { self.block.as_mut() };
+        // PoolBox is not Send, so we can make the counter non-atomic
+        let counter_mut = unsafe { self.block.as_mut() }.counter.get_mut();
+        // let block = unsafe { self.block.as_mut() };
 
         // See ArenaBox<T>::new for why we touch the counter
-        assert!(block.counter == 1, "PoolBox: Counter != 1 on drop {}", block.counter);
-        block.counter = 0;
+        assert!(*counter_mut == 1, "PoolBox: Counter != 1 on drop {}", counter_mut);
+        *counter_mut = 0;
 
         // We were the last reference
-        if block.counter == 0 {
+        if *counter_mut == 0 {
             Block::drop_block(self.block)
         };
     }
@@ -179,7 +124,7 @@ impl<T> Page<T> {
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
             block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::Pool);
-            block.counter = 0;
+            block.counter = AtomicUsize::new(0);
         }
 
         page_ptr
@@ -223,7 +168,7 @@ impl<T> Page<T> {
         Some(NonNull::from(&self.blocks[index_free]))
     }
 
-    fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
+    pub(crate) fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
         let page_ptr = page.as_ptr();
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
@@ -369,7 +314,7 @@ impl<T: Sized> Pool<T> {
         PoolBox::new(block)
     }
 
-    pub fn alloc_rc(&self, value: T) -> PoolRc<T> {
+    pub fn alloc_rc(&self, value: T) -> ArenaRc<T> {
         let block = self.find_place();
 
         unsafe {
@@ -377,10 +322,10 @@ impl<T: Sized> Pool<T> {
             ptr.write(value);
         }
 
-        PoolRc::new(block)
+        ArenaRc::new(block)
     }
 
-    pub fn alloc_in_place_rc<F>(&self, initializer: F) -> PoolRc<T>
+    pub fn alloc_in_place_rc<F>(&self, initializer: F) -> ArenaRc<T>
     where
         F: Fn(&mut MaybeUninit<T>)
     {
@@ -391,7 +336,7 @@ impl<T: Sized> Pool<T> {
             initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
         }
 
-        PoolRc::new(block)
+        ArenaRc::new(block)
     }
 
     pub fn stats(&self) -> (usize, usize) {
@@ -732,18 +677,13 @@ mod tests {
     fn invalid_block() {
         use std::cell::UnsafeCell;
         use std::ptr::NonNull;
+        use std::sync::atomic::AtomicUsize;
 
         let mut block = super::Block {
             value: UnsafeCell::new(1),
-            counter: 1,
+            counter: AtomicUsize::new(1),
             page: super::PageTaggedPtr {
                 data: !0,
-                #[cfg(test)]
-                real_ptr: !0,
-                #[cfg(test)]
-                real_index: 0,
-                #[cfg(test)]
-                real_kind: super::PageKind::Arena,
             },
         };
 

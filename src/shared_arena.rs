@@ -189,6 +189,7 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
+
     /// Constructs a new SharedArena capable of holding exactly 63 elements
     ///
     /// The Arena will reallocate itself if there is not enough space
@@ -547,14 +548,6 @@ impl<T: Sized> SharedArena<T> {
             let old = self.to_free.swap(Box::into_raw(ptr), AcqRel);
             assert!(old.is_null(), "OLD NOT NULL");
         }
-
-        // for page in &to_drop {
-        //     // let page_ref = unsafe { page.as_ref().unwrap() };
-
-        //     // assert!(page_ref.bitfield.load(Acquire) == !0);
-
-        //     drop_page(*page);
-        // }
 
         let old = self.free_list.swap(start.load(Relaxed), Release);
         assert!(old.is_null(), "OLD NOT NULL");

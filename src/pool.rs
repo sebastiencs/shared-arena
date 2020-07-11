@@ -67,10 +67,7 @@ impl<T> Drop for PoolBox<T> {
         assert!(*counter_mut == 1, "PoolBox: Counter != 1 on drop {}", counter_mut);
         *counter_mut = 0;
 
-        // We were the last reference
-        if *counter_mut == 0 {
-            Block::drop_block(self.block)
-        };
+        Block::drop_block(self.block)
     }
 }
 

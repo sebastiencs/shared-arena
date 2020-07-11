@@ -67,7 +67,7 @@ jobs:
           override: true
           components: rust-src
       - name: Run ${{ matrix.op }} Sanitizer
-        run: ./sanitizer.sh ${{ matrix.op }} ${{ matrix.mode }}
+        run: ./scripts/sanitizer.sh ${{ matrix.op }} ${{ matrix.mode }}
 
   valgrind:
     name: Valgrind
@@ -90,69 +90,7 @@ jobs:
       - name: Install Valgrind
         run: sudo apt install -y valgrind
       - name: Run Valgrind
-        run: ./sanitizer.sh valgrind ${{ matrix.mode }}
-
-  # addr_sanitizer:
-  #   name: AddressSanitizer
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - name: Install toolchain
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly
-  #         override: true
-  #         components: rust-src
-  #     - name: Run Address Sanitizer
-  #       run: ./sanitizer.sh address
-
-  # leak_sanitizer:
-  #   name: LeakSanitizer
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - name: Install toolchain
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly
-  #         override: true
-  #         components: rust-src
-  #     - name: Run Leak Sanitizer
-  #       run: ./sanitizer.sh leak
-
-  # mem_sanitizer:
-  #   name: MemorySanitizer
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - name: Install toolchain
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly
-  #         override: true
-  #         components: rust-src
-  #     - name: Run Memory Sanitizer
-  #       run: ./sanitizer.sh memory
-
-  # valgrind:
-  #   name: Valgrind
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - name: Install toolchain
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly
-  #         override: true
-  #         components: rust-src
-  #     - name: Install Valgrind
-  #       run: sudo apt install -y valgrind
-  #     - name: Run Valgrind
-  #       run: ./sanitizer.sh valgrind
+        run: ./scripts/sanitizer.sh valgrind ${{ matrix.mode }}
 
   lint:
     name: Clippy

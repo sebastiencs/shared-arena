@@ -1,0 +1,42 @@
+version: '2'
+services:
+  sanitizer_address:
+    build: ./
+    image: rust/test
+    command: ./scripts/sanitizer.sh address
+    working_dir: /app
+    volumes:
+      - ..:/app
+    tmpfs:
+      - /app/target:exec,mode=777
+    cpuset: "0"
+  sanitizer_leak:
+    build: ./
+    image: rust/test
+    command: ./scripts/sanitizer.sh leak
+    working_dir: /app
+    volumes:
+      - ..:/app
+    tmpfs:
+      - /app/target:exec,mode=777
+    cpuset: "1"
+  sanitizer_memory:
+    build: ./
+    image: rust/test
+    command: ./scripts/sanitizer.sh memory
+    working_dir: /app
+    volumes:
+      - ..:/app
+    tmpfs:
+      - /app/target:exec,mode=777
+    cpuset: "2"
+  valgrind:
+    build: ./
+    image: rust/test
+    command: ./scripts/sanitizer.sh valgrind
+    working_dir: /app
+    volumes:
+      - ..:/app
+    tmpfs:
+      - /app/target:exec,mode=777
+    cpuset: "3"

@@ -53,6 +53,12 @@ jobs:
           - memory
     steps:
       - uses: actions/checkout@v2
+      - name: Install Clang
+        run: |
+            sudo apt-get install -y clang-10 llvm-dev-10
+            sudo ln -s /usr/bin/clang-10 /usr/bin/clang
+            sudo ln -s /usr/bin/clang++-10 /usr/bin/clang++
+            sudo ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:

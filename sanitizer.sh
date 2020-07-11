@@ -10,6 +10,8 @@ fi
 
 case "$1" in
     address)
+        export CC="clang"
+        export CXX="clang++"
         export CFLAGS="-fsanitize=address"
         export CXXFLAGS="-fsanitize=address"
         export RUSTFLAGS="-Zsanitizer=address"

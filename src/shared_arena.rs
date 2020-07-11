@@ -491,13 +491,13 @@ impl<T: Sized> SharedArena<T> {
         // them and remove them from the free list
         while let Some(current_value) = unsafe { current.load(Relaxed).as_mut() } {
             let next = &current_value.next_free;
-            let next_value = next.load(Relaxed);
+            let next_value = next.load(Acquire);
 
             if current_value.bitfield.load(Acquire) == !0 {
                 if current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).is_ok() {
-                    current_value.in_free_list.store(false, Release);
+                    // current_value.in_free_list.store(false, Release);
                     to_drop.push(current_value as *const _ as *mut PageSharedArena<T>);
                 }
             } else {
@@ -972,7 +972,7 @@ mod tests {
             handles.push(thread::spawn(move|| {
                 c.wait();
 
-//                arena.shrink_to_fit();
+               arena.shrink_to_fit();
 
                 let mut nshrink = 0;
 
@@ -983,14 +983,14 @@ mod tests {
                     if (i + 1) % 5 == 0 {
                         values.remove(rand);
                     }
-                    // if with_shrink && rand % 200 == 0 {
-                    //     if arena.shrink_to_fit() {
-                    //         nshrink += 1;
-                    //     }
-                    // }
+                    if with_shrink && rand % 200 == 0 {
+                        if arena.shrink_to_fit() {
+                            nshrink += 1;
+                        }
+                    }
                 }
 
-//                println!("NSHRINK: {}", nshrink);
+               println!("NSHRINK: {}", nshrink);
             }));
         }
 

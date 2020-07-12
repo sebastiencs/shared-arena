@@ -148,7 +148,7 @@ jobs:
       - id: coverage
         name: Generate Coverage & Upload
         run: |
-          grcov ./target/debug/ -s . -t coveralls+ --llvm --branch --ignore-not-existing -o ./coverage.json --token ${{ secrets.CODECOV_TOKEN }}
+          grcov ./target/debug/ -s src/ -t coveralls+ --llvm --branch --ignore-not-existing -o ./coverage.json --token ${{ secrets.CODECOV_TOKEN }}
           # bash <(curl -s https://codecov.io/bash) -f coverage.json -t ${{ secrets.CODECOV_TOKEN }}
 
       - uses: codecov/codecov-action@v1

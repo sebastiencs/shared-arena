@@ -2,7 +2,7 @@
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering::*;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, AtomicU16};
 use std::sync::Arc;
 
 use super::page::{Block, PageSharedArena, BLOCK_PER_PAGE, drop_page};
@@ -20,7 +20,8 @@ pub struct SharedArena<T: Sized> {
     npages: AtomicUsize,
     writer: AtomicBool,
     shrinking: AtomicBool,
-    to_free: AtomicPtr<Vec<*mut PageSharedArena<T>>>
+    to_free: AtomicPtr<Vec<*mut PageSharedArena<T>>>,
+    to_free_delay: AtomicU16,
 }
 
 unsafe impl<T: Sized> Send for SharedArena<T> {}
@@ -86,6 +87,22 @@ impl<T: Sized> SharedArena<T> {
         self.npages.fetch_add(to_allocate, Relaxed);
     }
 
+    fn maybe_free_pages(&self) {
+        if self.to_free_delay.load(Relaxed) < 50 {
+            let old = self.to_free_delay.fetch_add(1, AcqRel);
+            if old >= 50 {
+                let to_free = self.to_free.swap(std::ptr::null_mut(), AcqRel);
+
+                if let Some(to_free) = unsafe { to_free.as_mut() } {
+                    let to_free = unsafe { Box::from_raw(to_free) };
+                    for page in &*to_free {
+                        drop_page(*page);
+                    }
+                }
+            }
+        }
+    }
+
     fn find_place(&self) -> NonNull<Block<T>> {
         loop {
             while let Some(page) = unsafe { self.free_list.load(Acquire).as_mut() } {
@@ -128,6 +145,9 @@ impl<T: Sized> SharedArena<T> {
                         self.alloc_new_page();
                     }
                 }
+
+                self.maybe_free_pages();
+
                 continue;
             };
 
@@ -185,7 +205,8 @@ impl<T: Sized> SharedArena<T> {
             full_list: AtomicPtr::new(first.as_ptr()),
             writer: AtomicBool::new(false),
             shrinking: AtomicBool::new(false),
-            to_free: AtomicPtr::new(std::ptr::null_mut())
+            to_free: AtomicPtr::new(std::ptr::null_mut()),
+            to_free_delay: AtomicU16::new(50)
         }
     }
 
@@ -548,6 +569,7 @@ impl<T: Sized> SharedArena<T> {
             let old = self.to_free.swap(Box::into_raw(ptr), AcqRel);
             assert!(old.is_null(), "OLD NOT NULL");
         }
+        self.to_free_delay.store(0, Release);
 
         let old = self.free_list.swap(start.load(Relaxed), Release);
         assert!(old.is_null(), "OLD NOT NULL");

@@ -1,2 +1,7 @@
-ignore:
-  - "**/registry/**/*" # Ignore dependencies
+coverage:
+  status:
+    project:
+      default:
+        target: "100%"
+        paths:
+          - "src"

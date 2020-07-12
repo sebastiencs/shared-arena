@@ -27,6 +27,12 @@ pub struct SharedArena<T: Sized> {
 unsafe impl<T: Sized> Send for SharedArena<T> {}
 unsafe impl<T: Sized> Sync for SharedArena<T> {}
 
+#[cfg(test)]
+const DELAY_DROP_SHRINK: u16 = 15;
+
+#[cfg(not(test))]
+const DELAY_DROP_SHRINK: u16 = 50;
+
 struct WriterGuard<'a> {
     writer: &'a AtomicBool
 }
@@ -88,9 +94,9 @@ impl<T: Sized> SharedArena<T> {
     }
 
     fn maybe_free_pages(&self) {
-        if self.to_free_delay.load(Relaxed) < 50 {
+        if self.to_free_delay.load(Relaxed) < DELAY_DROP_SHRINK {
             let old = self.to_free_delay.fetch_add(1, AcqRel);
-            if old >= 50 {
+            if old == DELAY_DROP_SHRINK - 1 {
                 let to_free = self.to_free.swap(std::ptr::null_mut(), AcqRel);
 
                 if let Some(to_free) = unsafe { to_free.as_mut() } {
@@ -206,7 +212,7 @@ impl<T: Sized> SharedArena<T> {
             writer: AtomicBool::new(false),
             shrinking: AtomicBool::new(false),
             to_free: AtomicPtr::new(std::ptr::null_mut()),
-            to_free_delay: AtomicU16::new(50)
+            to_free_delay: AtomicU16::new(DELAY_DROP_SHRINK)
         }
     }
 

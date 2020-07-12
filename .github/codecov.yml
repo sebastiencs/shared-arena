@@ -5,5 +5,7 @@ coverage:
         target: "100%"
         paths:
           - "src"
+comment:
+  layout: "diff, files"
 # fixes:
 #   - "src/::"

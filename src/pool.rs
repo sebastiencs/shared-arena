@@ -685,5 +685,5 @@ mod tests {
         };
 
         super::Block::drop_block(NonNull::from(&mut block));
-    }
+    } // grcov_ignore
 }

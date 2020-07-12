@@ -476,7 +476,7 @@ mod tests {
         };
 
         super::Block::drop_block(NonNull::from(&mut block));
-    }
+    } // grcov_ignore
 
     #[test]
     #[should_panic]
@@ -484,5 +484,5 @@ mod tests {
         super::PageKind::from(super::PageTaggedPtr {
             data: !0,
         });
-    }
+    } // grcov_ignore
 }

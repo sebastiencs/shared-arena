@@ -5,5 +5,5 @@ coverage:
         target: "100%"
         paths:
           - "src"
-fixes:
-  - "src/::"
+# fixes:
+#   - "src/::"

@@ -136,23 +136,29 @@ jobs:
           command: test
           args: --all-features --no-fail-fast
         env:
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+          RUSTDOCFLAGS: "-Cpanic=abort"
 
       - id: coverage
-        name: Coverage
-        uses: actions-rs/grcov@v0.1
+        name: Generate Coverage & Upload
+        run: |
+          grcov ./target/debug/ -s . -t coveralls+ --llvm --branch --ignore-not-existing -o ./coverage.json --token ${{ secrets.CODECOV_TOKEN }}
+          bash <(curl -s https://codecov.io/bash) -f coverage.json -t ${{ secrets.CODECOV_TOKEN }}
 
-      - uses: codecov/codecov-action@v1
-        name: Upload to codecov.io
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          file: ${{ steps.coverage.outputs.report }}
-          # file: ./coverage.xml # optional
-          # flags: unittests # optional
-          # name: codecov-umbrella # optional
-          # fail_ci_if_error: true # optional (default = false)
+      # - id: coverage
+      #   name: Coverage
+      #   uses: actions-rs/grcov@v0.1
+
+      # - uses: codecov/codecov-action@v1
+      #   name: Upload to codecov.io
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+      #     file: ${{ steps.coverage.outputs.report }}
+      #     # file: ./coverage.xml # optional
+      #     # flags: unittests # optional
+      #     # name: codecov-umbrella # optional
+      #     # fail_ci_if_error: true # optional (default = false)
 
   # benchmark:
   #   name: Benchmark

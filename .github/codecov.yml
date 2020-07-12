@@ -1,0 +1,2 @@
+ignore:
+  - "**/registry/**/*" # Ignore dependencies

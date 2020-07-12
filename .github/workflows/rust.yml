@@ -130,6 +130,11 @@ jobs:
           override: true
           profile: minimal
 
+      - name: Install grcov
+        uses: actions-rs/install@v0.1
+        with:
+          crate: grcov
+
       - name: Execute tests
         uses: actions-rs/cargo@v1
         with:
@@ -144,7 +149,17 @@ jobs:
         name: Generate Coverage & Upload
         run: |
           grcov ./target/debug/ -s . -t coveralls+ --llvm --branch --ignore-not-existing -o ./coverage.json --token ${{ secrets.CODECOV_TOKEN }}
-          bash <(curl -s https://codecov.io/bash) -f coverage.json -t ${{ secrets.CODECOV_TOKEN }}
+          # bash <(curl -s https://codecov.io/bash) -f coverage.json -t ${{ secrets.CODECOV_TOKEN }}
+
+      - uses: codecov/codecov-action@v1
+        name: Upload to codecov.io
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+          file: ./coverage.json
+          # file: ./coverage.xml # optional
+          # flags: unittests # optional
+          # name: codecov-umbrella # optional
+          # fail_ci_if_error: true # optional (default = false)
 
       # - id: coverage
       #   name: Coverage

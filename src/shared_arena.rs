@@ -20,7 +20,7 @@ pub struct SharedArena<T: Sized> {
     npages: AtomicUsize,
     writer: AtomicBool,
     shrinking: AtomicBool,
-    to_free: AtomicPtr<Vec<*mut PageSharedArena<T>>>,
+    to_free: AtomicPtr<Vec<NonNull<PageSharedArena<T>>>>,
     to_free_delay: AtomicU16,
 }
 
@@ -63,14 +63,12 @@ impl Drop for WriterGuard<'_> {
 }
 
 impl<T: Sized> SharedArena<T> {
-    fn alloc_new_page(&self) {
-        let to_allocate = self.npages
-                              .load(Relaxed)
-                              .max(1)
-                              .min(900_000);
-
-        let (first, mut last) = PageSharedArena::make_list(to_allocate, &self.pending_free_list);
-
+    fn put_pages_in_lists(
+        &self,
+        npages: usize,
+        first: NonNull<PageSharedArena<T>>,
+        mut last: NonNull<PageSharedArena<T>>
+    ) {
         let first_ptr = first.as_ptr();
         let last_ref = unsafe { last.as_mut() };
 
@@ -90,7 +88,17 @@ impl<T: Sized> SharedArena<T> {
         let old = self.free_list.swap(first_ptr, AcqRel);
         assert!(old.is_null(), "Arena.free2 isn't null");
 
-        self.npages.fetch_add(to_allocate, Relaxed);
+        self.npages.fetch_add(npages, Relaxed);
+    }
+
+    fn alloc_new_page(&self) {
+        let to_allocate = self.npages
+                              .load(Relaxed)
+                              .max(1)
+                              .min(900_000);
+
+        let (first, last) = PageSharedArena::make_list(to_allocate, &self.pending_free_list);
+        self.put_pages_in_lists(to_allocate, first, last);
     }
 
     fn maybe_free_pages(&self) {
@@ -102,7 +110,7 @@ impl<T: Sized> SharedArena<T> {
                 if let Some(to_free) = unsafe { to_free.as_mut() } {
                     let to_free = unsafe { Box::from_raw(to_free) };
                     for page in &*to_free {
-                        drop_page(*page);
+                        drop_page(page.as_ptr());
                     }
                 }
             }
@@ -147,11 +155,8 @@ impl<T: Sized> SharedArena<T> {
                         if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
                             let to_free = unsafe { Box::from_raw(to_free) };
 
-                            PageSharedArena::make_list_from_slice(&to_free);
-
-                            for page in &*to_free {
-                                drop_page(*page);
-                            }
+                            let (first, last) = PageSharedArena::make_list_from_slice(&to_free);
+                            self.put_pages_in_lists(to_free.len(), first, last);
                         }
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
@@ -544,7 +549,8 @@ impl<T: Sized> SharedArena<T> {
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).is_ok() {
                     // current_value.in_free_list.store(false, Release);
-                    to_drop.push(current_value as *const _ as *mut PageSharedArena<T>);
+                    let ptr = current_value as *const _ as *mut PageSharedArena<T>;
+                    to_drop.push(NonNull::new(ptr).unwrap());
                 }
             } else {
                 current = next;
@@ -553,7 +559,7 @@ impl<T: Sized> SharedArena<T> {
 
         // Check that the page hasn't been used by another thread
         to_drop.retain(|page| {
-            let page_ref = unsafe { page.as_ref().unwrap() };
+            let page_ref = unsafe { page.as_ref() };
             page_ref.bitfield.load(Acquire) == !0
         });
 
@@ -562,10 +568,11 @@ impl<T: Sized> SharedArena<T> {
         // Loop on the full list
         // We remove the pages from it
         while let Some(current_value) = unsafe { current.load(Relaxed).as_mut() } {
+            let ptr = unsafe { NonNull::new_unchecked(current_value) };
             let next = &current_value.next;
             let next_value = next.load(Relaxed);
 
-            if to_drop.contains(&(current_value as *const _ as *mut PageSharedArena<T>)) {
+            if to_drop.contains(&ptr) {
                 current.compare_exchange(
                     current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
                 ).expect("Something went wrong in shrinking.");
@@ -576,14 +583,16 @@ impl<T: Sized> SharedArena<T> {
 
         let nfreed = to_drop.len();
 
-        if let Some(to_free) = unsafe { self.to_free.load(Acquire).as_mut() } {
-            to_free.append(&mut to_drop);
-        } else {
-            let ptr = Box::new(to_drop);
-            let old = self.to_free.swap(Box::into_raw(ptr), AcqRel);
-            assert!(old.is_null(), "OLD NOT NULL");
+        if nfreed != 0 {
+            if let Some(to_free) = unsafe { self.to_free.load(Acquire).as_mut() } {
+                to_free.append(&mut to_drop);
+            } else {
+                let ptr = Box::new(to_drop);
+                let old_to_free = self.to_free.swap(Box::into_raw(ptr), AcqRel);
+                assert!(old_to_free.is_null());
+            }
+            self.to_free_delay.store(0, Release);
         }
-        self.to_free_delay.store(0, Release);
 
         let old = self.free_list.swap(start.load(Relaxed), Release);
         assert!(old.is_null(), "OLD NOT NULL");
@@ -687,7 +696,7 @@ impl<T> Drop for SharedArena<T> {
         if let Some(to_free) = unsafe { self.to_free.load(Relaxed).as_mut() } {
             let to_free = unsafe { Box::from_raw(to_free) };
             for page in &*to_free {
-                drop_page(*page);
+                drop_page(page.as_ptr());
             }
         }
 
@@ -783,7 +792,7 @@ mod tests {
             values.push(arena.alloc(1));
         }
 
-        assert_eq!(arena.stats(), (66, 60));
+        assert_eq!(arena.stats(), (66, 942));
         arena.shrink_to_fit();
         assert_eq!(arena.stats(), (66, 60));
 
@@ -850,13 +859,13 @@ mod tests {
         for _ in 0..126 {
             values.push(arena.alloc(1));
         }
-        assert_eq!(arena.size_lists(), (2, 1, 0));
+        assert_eq!(arena.size_lists(), (16, 15, 0));
 
         values.remove(0);
-        assert_eq!(arena.size_lists(), (2, 1, 1));
+        assert_eq!(arena.size_lists(), (16, 15, 1));
 
         values.push(arena.alloc(1));
-        assert_eq!(arena.size_lists(), (2, 1, 0));
+        assert_eq!(arena.size_lists(), (16, 14, 1));
     }
 
     // // #[test]

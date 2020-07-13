@@ -299,6 +299,20 @@ impl<T> PageSharedArena<T> {
         (previous, last)
     }
 
+    pub(crate) fn make_list_from_slice(
+        pages: &[*mut PageSharedArena<T>]
+    ) -> (NonNull<PageSharedArena<T>>, NonNull<PageSharedArena<T>>) {
+        for (index, page) in pages.iter().map(|p| unsafe { (*p).as_mut().unwrap() }).enumerate() {
+            let next = pages.get(index + 1)
+                            .map(|p| *p)
+                            .unwrap_or_else(std::ptr::null_mut);
+            page.next_free = AtomicPtr::new(next);
+            page.next = AtomicPtr::new(next);
+            page.in_free_list = AtomicBool::new(true);
+        }
+        (pages.first().map(NonNull::new).unwrap(), pages.last().map(NonNull::new).unwrap())
+    }
+
     /// Search for a free [`Block`] in the [`PageSharedArena`] and mark it as non-free
     ///
     /// If there is no free block, it returns None

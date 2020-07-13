@@ -141,10 +141,18 @@ impl<T: Sized> SharedArena<T> {
                         // Move self.pending_free to self.free.
 
                         let pending = self.pending_free_list.swap(std::ptr::null_mut(), AcqRel);
-                        let old = self.free_list.swap(pending, Release);
-                        assert!(old.is_null(), "NOT NULL");
-                    // } else if !self.to_free.load(Acquire).is_null() {
+                        let old_free_list = self.free_list.swap(pending, Release);
+                        assert!(old_free_list.is_null());
+                    } else if !self.to_free.load(Relaxed).is_null() {
+                        if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
+                            let to_free = unsafe { Box::from_raw(to_free) };
 
+                            PageSharedArena::make_list_from_slice(&to_free);
+
+                            for page in &*to_free {
+                                drop_page(*page);
+                            }
+                        }
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
 

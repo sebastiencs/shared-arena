@@ -311,8 +311,8 @@ impl<T> PageSharedArena<T> {
             page.in_free_list = AtomicBool::new(true);
         }
         (
-            pages.first().map(|p| *p).unwrap(),
-            pages.last().map(|p| *p).unwrap(),
+            pages.first().copied().unwrap(),
+            pages.last().copied().unwrap(),
         )
     }
 

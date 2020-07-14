@@ -164,7 +164,8 @@ impl<T: Sized> SharedArena<T> {
 
                             if truncate_at != 0 {
                                 to_free.truncate(truncate_at);
-                                self.to_free.swap(Box::into_raw(to_free), Release);
+                                let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
+                                assert!(old_to_free.is_null());
                             }
                         }
                     } else {

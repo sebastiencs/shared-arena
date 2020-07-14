@@ -183,6 +183,8 @@ impl<T: Sized> SharedArena<T> {
                 continue;
             };
 
+            self.maybe_free_pages();
+
             std::thread::yield_now();
 
             // // This block is reached if an another thread is allocating or replacing

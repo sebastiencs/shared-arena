@@ -29,6 +29,7 @@ jobs:
           override: true
 
       - name: Remove criterion
+        if: ${{ runner.os != 'Windows' }} # sed doesn't work on windows
         run: sed -i.bak '/criterion/d' ./Cargo.toml
 
       - name: Build

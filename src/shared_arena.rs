@@ -27,11 +27,11 @@ pub struct SharedArena<T: Sized> {
 unsafe impl<T: Sized> Send for SharedArena<T> {}
 unsafe impl<T: Sized> Sync for SharedArena<T> {}
 
-#[cfg(test)]
-const DELAY_DROP_SHRINK: u16 = 15;
+// #[cfg(test)]
+// const DELAY_DROP_SHRINK: u16 = 15;
 
-#[cfg(not(test))]
-const DELAY_DROP_SHRINK: u16 = 50;
+// #[cfg(not(test))]
+const DELAY_DROP_SHRINK: u16 = 100;
 
 struct WriterGuard<'a> {
     writer: &'a AtomicBool
@@ -882,6 +882,34 @@ mod tests {
         values.push(arena.alloc(1));
         assert_eq!(arena.size_lists(), (2, 1, 0));
     }
+
+    // #[test]
+    // fn arena_drop_in_to_free() {
+    //     let arena = SharedArena::<usize>::new();
+    //     let mut values = Vec::with_capacity(1000);
+
+    //     for _ in 0..1000 {
+    //         values.push(arena.alloc(1));
+    //     }
+    //     values.truncate(900);
+    //     arena.shrink_to_fit();
+
+    //     for _ in 0..100 {
+    //         values.push(arena.alloc(1));
+    //     }
+    //     values.truncate(800);
+    //     for _ in 0..64 {
+    //         values.push(arena.alloc(1));
+    //     }
+    //     values.truncate(700);
+    //     for _ in 0..200 {
+    //         values.push(arena.alloc(1));
+    //     }
+    //     values.truncate(600);
+    //     for _ in 0..300 {
+    //         values.push(arena.alloc(1));
+    //     }
+    // }
 
     // // #[test]
     // fn arena_size() {

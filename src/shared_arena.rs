@@ -153,10 +153,19 @@ impl<T: Sized> SharedArena<T> {
                         assert!(old_free_list.is_null());
                     } else if !self.to_free.load(Relaxed).is_null() {
                         if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
-                            let to_free = unsafe { Box::from_raw(to_free) };
+                            let mut to_free = unsafe { Box::from_raw(to_free) };
 
-                            let (first, last) = PageSharedArena::make_list_from_slice(&to_free);
-                            self.put_pages_in_lists(to_free.len(), first, last);
+                            let npages = self.npages.load(Relaxed).max(1);
+                            let truncate_at = to_free.len().saturating_sub(npages);
+                            let to_reinsert = &to_free[truncate_at..];
+
+                            let (first, last) = PageSharedArena::make_list_from_slice(&to_reinsert);
+                            self.put_pages_in_lists(to_reinsert.len(), first, last);
+
+                            if truncate_at != 0 {
+                                to_free.truncate(truncate_at);
+                                self.to_free.swap(Box::into_raw(to_free), Release);
+                            }
                         }
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
@@ -792,7 +801,7 @@ mod tests {
             values.push(arena.alloc(1));
         }
 
-        assert_eq!(arena.stats(), (66, 942));
+        assert_eq!(arena.stats(), (66, 60));
         arena.shrink_to_fit();
         assert_eq!(arena.stats(), (66, 60));
 
@@ -859,13 +868,13 @@ mod tests {
         for _ in 0..126 {
             values.push(arena.alloc(1));
         }
-        assert_eq!(arena.size_lists(), (16, 15, 0));
+        assert_eq!(arena.size_lists(), (2, 1, 0));
 
         values.remove(0);
-        assert_eq!(arena.size_lists(), (16, 15, 1));
+        assert_eq!(arena.size_lists(), (2, 1, 1));
 
         values.push(arena.alloc(1));
-        assert_eq!(arena.size_lists(), (16, 14, 1));
+        assert_eq!(arena.size_lists(), (2, 1, 0));
     }
 
     // // #[test]

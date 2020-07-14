@@ -151,6 +151,8 @@ impl<T: Sized> SharedArena<T> {
                         let pending = self.pending_free_list.swap(std::ptr::null_mut(), AcqRel);
                         let old_free_list = self.free_list.swap(pending, Release);
                         assert!(old_free_list.is_null());
+
+                        self.maybe_free_pages();
                     } else if !self.to_free.load(Relaxed).is_null() {
                         if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
                             let mut to_free = unsafe { Box::from_raw(to_free) };
@@ -166,6 +168,9 @@ impl<T: Sized> SharedArena<T> {
                                 to_free.truncate(truncate_at);
                                 let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
                                 assert!(old_to_free.is_null());
+                                self.to_free_delay.store(0, Relaxed);
+                            } else {
+                                self.to_free_delay.store(DELAY_DROP_SHRINK, Relaxed);
                             }
                         }
                     } else {
@@ -174,8 +179,6 @@ impl<T: Sized> SharedArena<T> {
                         self.alloc_new_page();
                     }
                 }
-
-                self.maybe_free_pages();
 
                 continue;
             };

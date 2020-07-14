@@ -28,6 +28,9 @@ jobs:
           toolchain: ${{ matrix.rust }}
           override: true
 
+      - name: Remove criterion
+        run: sed -i.bak '/criterion/d' ./Cargo.toml
+
       - name: Build
         uses: actions-rs/cargo@v1
         with:
@@ -66,6 +69,8 @@ jobs:
           toolchain: nightly
           override: true
           components: rust-src
+      - name: Remove criterion
+        run: sed -i.bak '/criterion/d' ./Cargo.toml
       - name: Run ${{ matrix.op }} Sanitizer
         run: ./scripts/sanitizer.sh ${{ matrix.op }} ${{ matrix.mode }}
 
@@ -89,6 +94,8 @@ jobs:
           components: rust-src
       - name: Install Valgrind
         run: sudo apt install -y valgrind
+      - name: Remove criterion
+        run: sed -i.bak '/criterion/d' ./Cargo.toml
       - name: Run Valgrind
         run: ./scripts/sanitizer.sh valgrind ${{ matrix.mode }}
 
@@ -134,6 +141,9 @@ jobs:
         uses: actions-rs/install@v0.1
         with:
           crate: grcov
+
+      - name: Remove criterion
+        run: sed -i.bak '/criterion/d' ./Cargo.toml
 
       - name: Execute tests
         uses: actions-rs/cargo@v1
@@ -200,6 +210,9 @@ jobs:
           override: true
           components: miri, rust-src
 
+      - name: Remove criterion
+        run: sed -i.bak '/criterion/d' ./Cargo.toml
+
       - uses: actions-rs/cargo@v1
         name: Setup Miri
         with:
@@ -240,6 +253,9 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
+
+      - name: Remove criterion
+        run: sed -i.bak '/criterion/d' ./Cargo.toml
 
       - uses: actions-rs/cargo@v1
         name: Build

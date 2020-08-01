@@ -5,10 +5,10 @@ use std::sync::atomic::Ordering::*;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, AtomicU16};
 use std::sync::Arc;
 
-use super::page::{Block, PageSharedArena, BLOCK_PER_PAGE, drop_page};
-use super::arena_arc::ArenaArc;
-use super::arena_box::ArenaBox;
-use super::arena_rc::ArenaRc;
+use crate::common::BLOCK_PER_PAGE;
+use crate::block::Block;
+use crate::page::{PageSharedArena, drop_page};
+use crate::{ArenaArc, ArenaBox, ArenaRc};
 
 /// An arena shareable across threads
 ///

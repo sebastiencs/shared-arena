@@ -6,13 +6,10 @@ use std::sync::atomic::AtomicPtr;
 use std::sync::Arc;
 use std::cell::Cell;
 
-use super::page::{Block, BLOCK_PER_PAGE};
-use super::page_arena::{PageArena, drop_page};
-use super::arena_arc::ArenaArc;
-use super::arena_box::ArenaBox;
-use super::arena_rc::ArenaRc;
-
-type Pointer<T> = Cell<*mut T>;
+use crate::block::Block;
+use crate::page_arena::{PageArena, drop_page};
+use crate::common::{Pointer, BLOCK_PER_PAGE};
+use crate::{ArenaRc, ArenaBox, ArenaArc};
 
 /// An arena shareable across threads
 ///

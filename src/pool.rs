@@ -1,4 +1,3 @@
-
 use std::cell::Cell;
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
@@ -7,12 +6,9 @@ use std::rc::{Rc, Weak};
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicUsize;
 
-use super::page::{PageTaggedPtr, PageKind, Block};
-use crate::arena_rc::ArenaRc;
-
-type Pointer<T> = Cell<*mut T>;
-
-use super::page::{BLOCK_PER_PAGE, MASK_ARENA_BIT};
+use crate::block::{PageTaggedPtr, PageKind, Block};
+use crate::common::{BLOCK_PER_PAGE, MASK_ARENA_BIT, Pointer};
+use crate::ArenaRc;
 
 pub struct Page<T> {
     bitfield: usize,

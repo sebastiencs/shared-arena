@@ -2,11 +2,12 @@
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*};
 use std::sync::{Arc, Weak};
 use std::cell::Cell;
-
 use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
+
 use crate::cache_line::CacheAligned;
-use crate::page::{Block, BLOCK_PER_PAGE, PageTaggedPtr, PageKind};
+use crate::block::{Block, PageTaggedPtr, PageKind};
+use crate::common::BLOCK_PER_PAGE;
 
 pub type Bitfield = usize;
 pub type BitfieldAtomic = AtomicUsize;

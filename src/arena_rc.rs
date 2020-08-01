@@ -1,7 +1,7 @@
 
 use std::ptr::NonNull;
 
-use super::page::Block;
+use crate::block::Block;
 
 #[repr(C)]
 pub struct ArenaRc<T> {

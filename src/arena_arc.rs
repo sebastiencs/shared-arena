@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
-use super::page::Block;
+use crate::block::Block;
 
 /// A reference-counting pointer to `T` in the arena
 ///

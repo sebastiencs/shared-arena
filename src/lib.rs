@@ -8,6 +8,8 @@ mod arena_rc;
 mod arena_box;
 mod pool;
 mod cache_line;
+mod common;
+mod block;
 
 pub use {
     arena::Arena,

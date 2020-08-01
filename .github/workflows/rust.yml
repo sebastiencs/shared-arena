@@ -59,6 +59,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: Install Clang
         run: |
+            sudo apt-get update
             sudo apt-get install -y clang-10 llvm-10-dev
             sudo ln -fs /usr/bin/clang-10 /usr/bin/clang
             sudo ln -fs /usr/bin/clang++-10 /usr/bin/clang++

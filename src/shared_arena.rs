@@ -139,10 +139,14 @@ impl<T: Sized> SharedArena<T> {
                 }
             }
 
-            // TODO: See how to reduce branches here
             if let Some(_guard) = WriterGuard::new(&self.writer) {
                 if self.free_list.load(Acquire).is_null() {
-                    // A single and only thread run this code at a time.
+                    // A single and only thread run this block at a time.
+                    //
+                    // 3 ways to get new pages:
+                    // - take pending_free_list
+                    // - reuse pages that were removed with shrink()
+                    // - allocate
 
                     let pending = self.pending_free_list.load(Relaxed);
                     if !pending.is_null() {
@@ -154,25 +158,9 @@ impl<T: Sized> SharedArena<T> {
 
                         self.maybe_free_pages();
                     } else if !self.to_free.load(Relaxed).is_null() {
-                        if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
-                            let mut to_free = unsafe { Box::from_raw(to_free) };
+                        // Take pages that were removed from shrink()
 
-                            let npages = self.npages.load(Relaxed).max(1);
-                            let truncate_at = to_free.len().saturating_sub(npages);
-                            let to_reinsert = &to_free[truncate_at..];
-
-                            let (first, last) = PageSharedArena::make_list_from_slice(&to_reinsert);
-                            self.put_pages_in_lists(to_reinsert.len(), first, last);
-
-                            if truncate_at != 0 {
-                                to_free.truncate(truncate_at);
-                                let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
-                                assert!(old_to_free.is_null());
-                                self.to_free_delay.store(0, Relaxed);
-                            } else {
-                                self.to_free_delay.store(DELAY_DROP_SHRINK, Relaxed);
-                            }
-                        }
+                        self.take_pages_to_be_freed();
                     } else {
                         // No pages in self.pending_free. We allocate new pages.
 
@@ -208,6 +196,30 @@ impl<T: Sized> SharedArena<T> {
             //     }
             //     next = unsafe { page.next_free.load(Acquire).as_mut() };
             // }
+        }
+    }
+
+    fn take_pages_to_be_freed(&self) {
+        if let Some(to_free) = unsafe {
+            self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut()
+        } {
+            let mut to_free = unsafe { Box::from_raw(to_free) };
+
+            let npages = self.npages.load(Relaxed).max(1);
+            let truncate_at = to_free.len().saturating_sub(npages);
+            let to_reinsert = &to_free[truncate_at..];
+
+            let (first, last) = PageSharedArena::make_list_from_slice(&to_reinsert);
+            self.put_pages_in_lists(to_reinsert.len(), first, last);
+
+            if truncate_at != 0 {
+                to_free.truncate(truncate_at);
+                let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
+                assert!(old_to_free.is_null());
+                self.to_free_delay.store(0, Relaxed);
+            } else {
+                self.to_free_delay.store(DELAY_DROP_SHRINK, Relaxed);
+            }
         }
     }
 

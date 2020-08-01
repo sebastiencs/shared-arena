@@ -76,7 +76,8 @@ impl<T: Sized> SharedArena<T> {
 
         let current = self.full_list.load(Relaxed);
         last_ref.next = AtomicPtr::new(current);
-        self.full_list.swap(first_ptr, AcqRel);
+        let old = self.full_list.swap(first_ptr, AcqRel);
+        assert_eq!(current, old);
 
         let current = self.free_list.load(Relaxed);
         assert!(current.is_null(), "Arena.free isn't null");
@@ -207,9 +208,12 @@ impl<T: Sized> SharedArena<T> {
 
             let (first, last) = PageSharedArena::make_list_from_slice(&to_reinsert);
             self.put_pages_in_lists(to_reinsert.len(), first, last);
+            eprintln!("TO_INSERT={}", to_reinsert.len());
 
             if truncate_at != 0 {
+                eprintln!("TRUNCATE_AT={} BEFORE={}", truncate_at, to_free.len());
                 to_free.truncate(truncate_at);
+                eprintln!("AFTER={}", to_free.len());
                 let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
                 assert!(old_to_free.is_null());
                 self.to_free_delay.store(0, Relaxed);

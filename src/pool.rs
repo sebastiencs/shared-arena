@@ -136,7 +136,7 @@ impl<T: Sized> Pool<T> {
         PoolBox::new(block)
     }
 
-    pub fn alloc_in_place<F>(&self, initializer: F) -> PoolBox<T>
+    pub fn alloc_with<F>(&self, initializer: F) -> PoolBox<T>
     where
         F: Fn(&mut MaybeUninit<T>)
     {
@@ -161,7 +161,7 @@ impl<T: Sized> Pool<T> {
         ArenaRc::new(block)
     }
 
-    pub fn alloc_in_place_rc<F>(&self, initializer: F) -> ArenaRc<T>
+    pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
         F: Fn(&mut MaybeUninit<T>)
     {
@@ -468,12 +468,12 @@ mod tests {
 
         use std::ptr;
 
-        let a = arena.alloc_in_place(|place| unsafe {
+        let a = arena.alloc_with(|place| unsafe {
             ptr::copy(&101, place.as_mut_ptr(), 1);
         });
         assert!(*a == 101);
 
-        let a = arena.alloc_in_place_rc(|place| unsafe {
+        let a = arena.alloc_rc_with(|place| unsafe {
             ptr::copy(&102, place.as_mut_ptr(), 1);
         });
         assert!(*a == 102);
@@ -492,10 +492,10 @@ mod tests {
 
             use std::ptr;
 
-            let a = arena.alloc_in_place(|place| unsafe {
+            let a = arena.alloc_with(|place| unsafe {
                 ptr::copy(&101, place.as_mut_ptr(), 1);
             });
-            let b = arena.alloc_in_place_rc(|place| unsafe {
+            let b = arena.alloc_rc_with(|place| unsafe {
                 ptr::copy(&102, place.as_mut_ptr(), 1);
             });
             let c = arena.alloc(103);

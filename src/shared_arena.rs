@@ -325,7 +325,7 @@ impl<T: Sized> SharedArena<T> {
     /// let ref_struct: &MyStruct = &MyStruct{};
     ///
     /// let arena = SharedArena::new();
-    /// let my_struct: ArenaBox<MyStruct> = arena.alloc_in_place(|place| {
+    /// let my_struct: ArenaBox<MyStruct> = arena.alloc_with(|place| {
     ///     unsafe {
     ///         // The type must be Copy to use ptr::copy
     ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
@@ -336,7 +336,7 @@ impl<T: Sized> SharedArena<T> {
     /// [`ArenaBox`]: ./struct.ArenaBox.html
     /// [`alloc`]: struct.SharedArena.html#method.alloc
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
-    pub fn alloc_in_place<F>(&self, initializer: F) -> ArenaBox<T>
+    pub fn alloc_with<F>(&self, initializer: F) -> ArenaBox<T>
     where
         F: Fn(&mut MaybeUninit<T>)
     {
@@ -409,7 +409,7 @@ impl<T: Sized> SharedArena<T> {
     /// let ref_struct: &MyStruct = &MyStruct {};
     ///
     /// let arena = SharedArena::new();
-    /// let my_struct: ArenaArc<MyStruct> = arena.alloc_in_place_arc(|place| {
+    /// let my_struct: ArenaArc<MyStruct> = arena.alloc_arc_with(|place| {
     ///     unsafe {
     ///         // The type must be Copy to use ptr::copy
     ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
@@ -420,7 +420,7 @@ impl<T: Sized> SharedArena<T> {
     /// [`ArenaArc`]: ./struct.ArenaArc.html
     /// [`alloc_arc`]: #method.alloc_arc
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
-    pub fn alloc_in_place_arc<F>(&self, initializer: F) -> ArenaArc<T>
+    pub fn alloc_arc_with<F>(&self, initializer: F) -> ArenaArc<T>
     where
         F: Fn(&mut MaybeUninit<T>)
     {
@@ -490,7 +490,7 @@ impl<T: Sized> SharedArena<T> {
     /// let ref_struct: &MyStruct = &MyStruct {};
     ///
     /// let arena = SharedArena::new();
-    /// let my_struct: ArenaRc<MyStruct> = arena.alloc_in_place_rc(|place| {
+    /// let my_struct: ArenaRc<MyStruct> = arena.alloc_rc_with(|place| {
     ///     unsafe {
     ///         // The type must be Copy to use ptr::copy
     ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
@@ -501,7 +501,7 @@ impl<T: Sized> SharedArena<T> {
     /// [`ArenaRc`]: ./struct.ArenaRc.html
     /// [`alloc_rc`]: #method.alloc_rc
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
-    pub fn alloc_in_place_rc<F>(&self, initializer: F) -> ArenaRc<T>
+    pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
         F: Fn(&mut MaybeUninit<T>)
     {
@@ -989,17 +989,17 @@ mod tests {
 
         use std::ptr;
 
-        let a = arena.alloc_in_place(|place| unsafe {
+        let a = arena.alloc_with(|place| unsafe {
             ptr::copy(&101, place.as_mut_ptr(), 1);
         });
         assert!(*a == 101);
 
-        let a = arena.alloc_in_place_arc(|place| unsafe {
+        let a = arena.alloc_arc_with(|place| unsafe {
             ptr::copy(&102, place.as_mut_ptr(), 1);
         });
         assert!(*a == 102);
 
-        let a = arena.alloc_in_place_rc(|place| unsafe {
+        let a = arena.alloc_rc_with(|place| unsafe {
             ptr::copy(&103, place.as_mut_ptr(), 1);
         });
         assert!(*a == 103);
@@ -1021,10 +1021,10 @@ mod tests {
 
             use std::ptr;
 
-            let a = arena.alloc_in_place(|place| unsafe {
+            let a = arena.alloc_with(|place| unsafe {
                 ptr::copy(&101, place.as_mut_ptr(), 1);
             });
-            let b = arena.alloc_in_place_arc(|place| unsafe {
+            let b = arena.alloc_arc_with(|place| unsafe {
                 ptr::copy(&102, place.as_mut_ptr(), 1);
             });
             let c = arena.alloc(103);

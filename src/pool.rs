@@ -518,7 +518,7 @@ mod tests {
         let mut block = super::Block {
             value: UnsafeCell::new(1),
             counter: AtomicUsize::new(1),
-            page: super::PageTaggedPtr {
+            page: crate::block::PageTaggedPtr {
                 data: !0,
             },
         };

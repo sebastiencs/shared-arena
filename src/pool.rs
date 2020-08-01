@@ -1,23 +1,13 @@
 use std::cell::Cell;
 use std::ptr::NonNull;
-use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::mem::MaybeUninit;
-use std::sync::atomic::AtomicUsize;
 
-use crate::block::{PageTaggedPtr, PageKind, Block};
-use crate::common::{BLOCK_PER_PAGE, MASK_ARENA_BIT, Pointer};
+use crate::block::Block;
+use crate::common::{BLOCK_PER_PAGE, Pointer};
+use crate::page::pool::{PagePool, drop_page};
 use crate::ArenaRc;
-
-pub struct Page<T> {
-    bitfield: usize,
-    blocks: [Block<T>; BLOCK_PER_PAGE],
-    arena_free_list: Weak<Pointer<Page<T>>>,
-    next_free: Pointer<Page<T>>,
-    next: Pointer<Page<T>>,
-    in_free_list: bool,
-}
 
 pub struct PoolBox<T> {
     block: NonNull<Block<T>>,
@@ -67,159 +57,12 @@ impl<T> Drop for PoolBox<T> {
     }
 }
 
-impl<T> Page<T> {
-    fn allocate() -> NonNull<Page<T>> {
-        let layout = Layout::new::<Page<T>>();
-        unsafe {
-            let page = alloc(layout) as *const Page<T>;
-            NonNull::from(&*page)
-        }
-    }
-
-    fn deallocate_page(page: *mut Page<T>) {
-        let layout = Layout::new::<Page<T>>();
-        unsafe {
-            std::ptr::drop_in_place(&mut (*page).arena_free_list as *mut _);
-            dealloc(page as *mut Page<T> as *mut u8, layout);
-        }
-    }
-
-    fn new(
-        arena_free_list: Weak<Pointer<Page<T>>>,
-        next: *mut Page<T>
-    ) -> NonNull<Page<T>>
-    {
-        let mut page_ptr = Self::allocate();
-        let page_copy = page_ptr;
-
-        let page = unsafe { page_ptr.as_mut() };
-
-        // Initialize the page
-        // Don't invoke any Drop here, the allocated page is uninitialized
-
-        // We fill the bitfield with ones
-        page.bitfield = !0;
-        // page.next_free.set(next);
-        // page.next.set(next);
-        page.in_free_list = true;
-
-        let free_ptr = &mut page.arena_free_list as *mut Weak<Pointer<Page<T>>>;
-        unsafe {
-            free_ptr.write(arena_free_list);
-            // TODO: forget the old weak
-
-            let next_free_ptr = &mut page.next_free as *mut Pointer<_>;
-            let next_ptr = &mut page.next as *mut Pointer<_>;
-            next_free_ptr.write(Cell::new(next));
-            next_ptr.write(Cell::new(next));
-        }
-
-        // initialize the blocks
-        for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::Pool);
-            block.counter = AtomicUsize::new(0);
-        }
-
-        page_ptr
-    }
-
-    /// Make a new list of Page
-    ///
-    /// Returns the first and last Page in the list
-    pub fn make_list(
-        npages: usize,
-        arena_free_list: &Rc<Pointer<Page<T>>>
-    ) -> (NonNull<Page<T>>, NonNull<Page<T>>)
-    {
-        let arena_free_list = Rc::downgrade(arena_free_list);
-
-        let last = Page::<T>::new(arena_free_list.clone(), std::ptr::null_mut());
-        let mut previous = last;
-
-        for _ in 0..npages - 1 {
-            let previous_ptr = unsafe { previous.as_mut() };
-            let page = Page::<T>::new(arena_free_list.clone(), previous_ptr);
-            previous = page;
-        }
-
-        (previous, last)
-    }
-
-    /// Search for a free [`Block`] in the [`Page`] and mark it as non-free
-    ///
-    /// If there is no free block, it returns None
-    fn acquire_free_block(&mut self) -> Option<NonNull<Block<T>>> {
-        let index_free = self.bitfield.trailing_zeros() as usize;
-
-        if index_free == BLOCK_PER_PAGE {
-            return None;
-        }
-
-        // We clear the bit of the free block to mark it as non free
-        self.bitfield &= !(1 << index_free);
-
-        Some(NonNull::from(&self.blocks[index_free]))
-    }
-
-    pub(crate) fn drop_block(mut page: NonNull<Page<T>>, block: NonNull<Block<T>>) {
-        let page_ptr = page.as_ptr();
-        let page = unsafe { page.as_mut() };
-        let block = unsafe { block.as_ref() };
-
-        unsafe {
-            // Drop the inner value
-            std::ptr::drop_in_place(block.value.get());
-        }
-
-        let index_in_page = block.page.index_block();
-        page.bitfield |= 1 << index_in_page;
-
-        // The bit dedicated to the Page is inversed (1 for used, 0 for free)
-        if !page.bitfield == MASK_ARENA_BIT {
-            // We were the last block/arena referencing this page
-            // Deallocate it
-            Page::<T>::deallocate_page(page_ptr);
-            return;
-        }
-
-        if !page.in_free_list {
-            page.in_free_list = true;
-
-            if let Some(arena_free_list) = page.arena_free_list.upgrade() {
-                let current = arena_free_list.get();
-                page.next_free.set(current);
-                arena_free_list.set(page_ptr);
-            };
-        }
-    }
-}
-
-pub(super) fn drop_page<T>(page: *mut Page<T>) {
-    // We clear the bit dedicated to the arena
-    let new_bitfield = {
-        let page = unsafe { page.as_mut().unwrap() };
-        page.bitfield &= !MASK_ARENA_BIT;
-        page.bitfield
-    };
-
-    if !new_bitfield == MASK_ARENA_BIT {
-        // No one is referencing this page anymore (neither Arena, ArenaBox or ArenaArc)
-        Page::<T>::deallocate_page(page);
-    }
-}
-
-impl<T> Drop for Page<T> {
-    fn drop(&mut self) {
-        panic!("PAGE");
-    }
-}
-
 /// The difference with SharedArena is that Pool
 /// cannot be shared/sent to other threads, neither PoolBox or
 /// PoolRc
 pub struct Pool<T: Sized> {
-    free: Rc<Pointer<Page<T>>>,
-    page_list: Pointer<Page<T>>,
+    free: Rc<Pointer<PagePool<T>>>,
+    page_list: Pointer<PagePool<T>>,
     npages: Cell<usize>,
     _marker: PhantomData<*mut ()>
 }
@@ -233,7 +76,7 @@ impl<T: Sized> Pool<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
         let free = Rc::new(Cell::new(std::ptr::null_mut()));
 
-        let (mut first, _) = Page::make_list(npages, &free);
+        let (mut first, _) = PagePool::make_list(npages, &free);
         let first_ref = unsafe { first.as_mut() };
 
         free.set(first_ref);
@@ -246,12 +89,12 @@ impl<T: Sized> Pool<T> {
         }
     }
 
-    fn alloc_new_page(&self) -> NonNull<Page<T>> {
+    fn alloc_new_page(&self) -> NonNull<PagePool<T>> {
         let len = self.npages.get();
 
         let to_allocate = len.max(1).min(900_000);
 
-        let (first, mut last) = Page::make_list(to_allocate, &self.free);
+        let (first, mut last) = PagePool::make_list(to_allocate, &self.free);
 
         let last_ref = unsafe { last.as_mut() };
         last_ref.next_free.set(self.free.get());
@@ -377,7 +220,7 @@ impl<T: Sized> Pool<T> {
 
     pub fn shrink_to_fit(&mut self) {
 
-        let mut current: &Pointer<Page<T>> = &self.free;
+        let mut current: &Pointer<PagePool<T>> = &self.free;
 
         let mut to_drop = vec![];
 
@@ -387,13 +230,13 @@ impl<T: Sized> Pool<T> {
 
             if current_value.bitfield == !0 {
                 current.set(next_value);
-                to_drop.push(current_value as *const _ as *mut Page<T>);
+                to_drop.push(current_value as *const _ as *mut PagePool<T>);
             } else {
                 current = next;
             }
         }
 
-        let mut current: &Pointer<Page<T>> = &self.page_list;
+        let mut current: &Pointer<PagePool<T>> = &self.page_list;
 
         // Loop on the full list
         // We remove the pages from it
@@ -401,7 +244,7 @@ impl<T: Sized> Pool<T> {
             let next = &current_value.next;
             let next_value = next.get();
 
-            if to_drop.contains(&(current_value as *const _ as *mut Page<T>)) {
+            if to_drop.contains(&(current_value as *const _ as *mut PagePool<T>)) {
                 current.set(next_value);
             } else {
                 current = next;

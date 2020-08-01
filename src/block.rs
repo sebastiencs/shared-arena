@@ -4,9 +4,9 @@ use std::ptr::NonNull;
 
 use crate::page::{
     arena::PageArena,
-    shared_arena::PageSharedArena
+    shared_arena::PageSharedArena,
+    pool::PagePool
 };
-use crate::pool::Page as PagePool;
 
 // // https://stackoverflow.com/a/53646925
 // const fn max(a: usize, b: usize) -> usize {

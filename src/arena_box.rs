@@ -31,31 +31,6 @@ use crate::block::Block;
 /// [`SharedArena`]: ./struct.SharedArena.html
 /// [`DerefMut`]: https://doc.rust-lang.org/std/ops/trait.DerefMut.html
 ///
-// Implementation details:
-//
-// We make the struct repr(C) to ensure that the pointer to Block remains
-// at offset 0. This is to avoid any pointer arithmetic when dereferencing the
-// inner value
-//
-// TODO: Should we use a tagged pointer here ?
-// The pointer to Page is used to have access to the bitfield and deallocate
-// the Page when necessary.
-// However we could tag the block pointer to retrieve the Page and so ArenaBox
-// would have the size of 1 pointer only, instead of 2 now.
-// This has 2 inconvenients:
-// - Block would be aligned on 64 bytes to allow a big enough tag
-//   This could make the Page way bigger than necessary
-//   Or we could use the unused msb in the pointer (16 with 64 bits ptrs) but
-//   it would not work with 32 bits ptrs
-// - Dereferencing would involved removing the tag
-//   Though the compiler could cache the pointer somehow on its first used
-//
-// The inconvenients with 2 pointers:
-// - Its size, when moving the struct around
-// - Do not allow non-null pointer optimization (e.g with Option<ArenaBox<T>>)
-//
-// Benchmarks have to be made.
-#[repr(C)]
 pub struct ArenaBox<T> {
     block: NonNull<Block<T>>,
 }

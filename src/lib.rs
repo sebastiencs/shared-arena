@@ -1,7 +1,5 @@
 
 mod shared_arena;
-mod page;
-mod page_arena;
 mod arena;
 mod arena_arc;
 mod arena_rc;
@@ -10,6 +8,7 @@ mod pool;
 mod cache_line;
 mod common;
 mod block;
+mod page;
 
 pub use {
     arena::Arena,

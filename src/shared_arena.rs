@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::common::BLOCK_PER_PAGE;
 use crate::block::Block;
-use crate::page::{PageSharedArena, drop_page};
+use crate::page::shared_arena::{PageSharedArena, drop_page};
 use crate::{ArenaArc, ArenaBox, ArenaRc};
 
 /// An arena shareable across threads
@@ -27,10 +27,6 @@ pub struct SharedArena<T: Sized> {
 unsafe impl<T: Sized> Send for SharedArena<T> {}
 unsafe impl<T: Sized> Sync for SharedArena<T> {}
 
-// #[cfg(test)]
-// const DELAY_DROP_SHRINK: u16 = 15;
-
-// #[cfg(not(test))]
 const DELAY_DROP_SHRINK: u16 = 100;
 
 struct WriterGuard<'a> {

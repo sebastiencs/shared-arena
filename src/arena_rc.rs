@@ -3,7 +3,6 @@ use std::ptr::NonNull;
 
 use crate::block::Block;
 
-#[repr(C)]
 pub struct ArenaRc<T> {
     block: NonNull<Block<T>>,
 }

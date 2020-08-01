@@ -2,8 +2,10 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::AtomicUsize;
 use std::ptr::NonNull;
 
-use crate::page_arena::PageArena;
-use crate::page::PageSharedArena;
+use crate::page::{
+    arena::PageArena,
+    shared_arena::PageSharedArena
+};
 use crate::pool::Page as PagePool;
 
 // // https://stackoverflow.com/a/53646925

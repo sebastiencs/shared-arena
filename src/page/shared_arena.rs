@@ -154,7 +154,7 @@ impl<T> PageSharedArena<T> {
         }
     }
 
-    pub(super) fn drop_block(mut page: NonNull<PageSharedArena<T>>, block: NonNull<Block<T>>) {
+    pub(crate) fn drop_block(mut page: NonNull<PageSharedArena<T>>, block: NonNull<Block<T>>) {
         let page_ptr = page.as_ptr();
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
@@ -206,7 +206,7 @@ impl<T> PageSharedArena<T> {
     }
 }
 
-pub(super) fn drop_page<T>(page: *mut PageSharedArena<T>) {
+pub(crate) fn drop_page<T>(page: *mut PageSharedArena<T>) {
     // We clear the bit dedicated to the arena
     let old_bitfield = {
         let page = unsafe { page.as_ref().unwrap() };

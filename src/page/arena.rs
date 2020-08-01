@@ -143,7 +143,7 @@ impl<T> PageArena<T> {
         }
     }
 
-    pub(super) fn drop_block(mut page: NonNull<PageArena<T>>, block: NonNull<Block<T>>) {
+    pub(crate) fn drop_block(mut page: NonNull<PageArena<T>>, block: NonNull<Block<T>>) {
         let page_ptr = page.as_ptr();
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
@@ -195,7 +195,7 @@ impl<T> PageArena<T> {
     }
 }
 
-pub(super) fn drop_page<T>(page: *mut PageArena<T>) {
+pub(crate) fn drop_page<T>(page: *mut PageArena<T>) {
     let bitfield = {
         let page = unsafe { page.as_ref().unwrap() };
         let bitfield = page.bitfield.get();

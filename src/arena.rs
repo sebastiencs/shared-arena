@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::cell::Cell;
 
 use crate::block::Block;
-use crate::page_arena::{PageArena, drop_page};
+use crate::page::arena::{PageArena, drop_page};
 use crate::common::{Pointer, BLOCK_PER_PAGE};
 use crate::{ArenaRc, ArenaBox, ArenaArc};
 
@@ -106,11 +106,8 @@ impl<T: Sized> Arena<T> {
         Arena {
             npages: Cell::new(npages),
             free_list: Cell::new(first.as_ptr()),
-            // free_list: AtomicPtr::new(first.as_ptr()),
             pending_free_list: pending_free,
             full_list: AtomicPtr::new(first.as_ptr()),
-            // writer: AtomicBool::new(false),
-            // shrinking: AtomicBool::new(false)
         }
     }
 

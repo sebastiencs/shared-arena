@@ -51,10 +51,6 @@ use crate::block::Block;
 /// [`ArenaBox`]: ./struct.ArenaBox.html
 /// [`Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
 ///
-// Implementation details:
-//
-// See ArenaBox
-#[repr(C)]
 pub struct ArenaArc<T> {
     block: NonNull<Block<T>>,
 }

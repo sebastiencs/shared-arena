@@ -105,9 +105,12 @@ impl<T: Sized> SharedArena<T> {
                 let to_free = self.to_free.swap(std::ptr::null_mut(), AcqRel);
 
                 if let Some(to_free) = unsafe { to_free.as_mut() } {
-                    let to_free = unsafe { Box::from_raw(to_free) };
+                    // let to_free = unsafe { Box::from_raw(to_free) };
                     for page in &*to_free {
                         drop_page(page.as_ptr());
+                    }
+                    unsafe {
+                        Box::from_raw(to_free);
                     }
                 }
             }
@@ -200,7 +203,8 @@ impl<T: Sized> SharedArena<T> {
         if let Some(to_free) = unsafe {
             self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut()
         } {
-            let mut to_free = unsafe { Box::from_raw(to_free) };
+            // let mut to_free = to_free.into_vec();
+            // let mut to_free = unsafe { Box::from_raw(to_free) };
 
             let npages = self.npages.load(Relaxed).max(1);
             let truncate_at = to_free.len().saturating_sub(npages);
@@ -214,10 +218,14 @@ impl<T: Sized> SharedArena<T> {
                 eprintln!("TRUNCATE_AT={} BEFORE={}", truncate_at, to_free.len());
                 to_free.truncate(truncate_at);
                 eprintln!("AFTER={}", to_free.len());
-                let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
+                let old_to_free = self.to_free.swap(to_free, Release);
                 assert!(old_to_free.is_null());
                 self.to_free_delay.store(0, Relaxed);
             } else {
+                unsafe {
+                    Box::from_raw(to_free);
+                    // std::ptr::drop_in_place(to_free);
+                }
                 self.to_free_delay.store(DELAY_DROP_SHRINK, Relaxed);
             }
         }
@@ -611,8 +619,10 @@ impl<T: Sized> SharedArena<T> {
         let nfreed = to_drop.len();
 
         if nfreed != 0 {
-            if let Some(to_free) = unsafe { self.to_free.load(Acquire).as_mut() } {
+            if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
                 to_free.append(&mut to_drop);
+                let old = self.to_free.swap(to_free, AcqRel);
+                assert!(old.is_null());
             } else {
                 let ptr = Box::new(to_drop);
                 let old_to_free = self.to_free.swap(Box::into_raw(ptr), AcqRel);
@@ -721,9 +731,14 @@ impl<T: Sized> SharedArena<T> {
 impl<T> Drop for SharedArena<T> {
     fn drop(&mut self) {
         if let Some(to_free) = unsafe { self.to_free.load(Relaxed).as_mut() } {
-            let to_free = unsafe { Box::from_raw(to_free) };
+            // let to_free = unsafe { Box::from_raw(to_free) };
             for page in &*to_free {
                 drop_page(page.as_ptr());
+            }
+
+            unsafe {
+                Box::from_raw(to_free);
+            //     std::ptr::drop_in_place(to_free);
             }
         }
 

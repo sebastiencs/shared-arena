@@ -614,6 +614,7 @@ impl<T: Sized> SharedArena<T> {
         let nfreed = to_drop.len();
 
         if nfreed != 0 {
+            self.to_free_delay.store(0, Release);
             if let Some(to_free) = unsafe { self.to_free.swap(std::ptr::null_mut(), AcqRel).as_mut() } {
                 to_free.append(&mut to_drop);
                 let old = self.to_free.swap(to_free, AcqRel);
@@ -623,7 +624,6 @@ impl<T: Sized> SharedArena<T> {
                 let old = self.to_free.swap(Box::into_raw(ptr), AcqRel);
                 assert!(old.is_null());
             }
-            self.to_free_delay.store(0, Release);
         }
 
         let old = self.free_list.swap(start.load(Relaxed), Release);

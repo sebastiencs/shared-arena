@@ -160,7 +160,9 @@ jobs:
       - id: coverage
         name: Generate Coverage & Upload
         run: |
-          grcov ./target/debug/ -s src/ -t lcov --llvm --ignore-not-existing -o ./coverage.info --ignore "*registry*" --token ${{ secrets.CODECOV_TOKEN }} --excl-line "grcov_ignore|assert"
+          grcov ./target/debug/ -s . -t lcov --llvm --ignore-not-existing -o ./coverage.info --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
+
+          # grcov ./target/debug/ -s src/ -t lcov --llvm --ignore-not-existing -o ./coverage.info --ignore "*registry*" --token ${{ secrets.CODECOV_TOKEN }} --excl-line "grcov_ignore|assert"
 
       - uses: codecov/codecov-action@v1
         name: Upload to codecov.io

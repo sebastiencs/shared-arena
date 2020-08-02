@@ -168,7 +168,7 @@ impl<T: Sized> SharedArena<T> {
                 continue;
             };
 
-            self.maybe_free_pages();
+            // self.maybe_free_pages();
 
             std::thread::yield_now();
 

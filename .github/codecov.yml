@@ -7,7 +7,7 @@ coverage:
         #   - "src"
 comment:
   layout: "diff, files"
-fixes:
-  - "::src/"
 # fixes:
-#   - "src/::"
+#   - "::src/"
+fixes:
+  - "src/::"

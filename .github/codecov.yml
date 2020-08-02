@@ -9,5 +9,5 @@ comment:
   layout: "diff, files"
 # fixes:
 #   - "::src/"
-# fixes:
-#   - "src/::"
+fixes:
+  - "src/::"

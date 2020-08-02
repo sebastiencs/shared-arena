@@ -3,8 +3,8 @@ coverage:
     project:
       default:
         target: "100%"
-        paths:
-          - "src"
+        # paths:
+        #   - "src"
 comment:
   layout: "diff, files"
 # fixes:

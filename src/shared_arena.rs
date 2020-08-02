@@ -27,12 +27,6 @@ pub struct SharedArena<T: Sized> {
 unsafe impl<T: Sized> Send for SharedArena<T> {}
 unsafe impl<T: Sized> Sync for SharedArena<T> {}
 
-// #[cfg(test)]
-// const DELAY_DROP_SHRINK: u16 = 10;
-
-// #[cfg(not(test))]
-// const DELAY_DROP_SHRINK: u16 = 50;
-
 const DELAY_DROP_SHRINK: u16 = 100;
 
 struct WriterGuard<'a> {
@@ -156,8 +150,8 @@ impl<T: Sized> SharedArena<T> {
                         // Move self.pending_free to self.free.
 
                         let pending = self.pending_free_list.swap(std::ptr::null_mut(), AcqRel);
-                        let old_free_list = self.free_list.swap(pending, Release);
-                        assert!(old_free_list.is_null());
+                        let old = self.free_list.swap(pending, Release);
+                        assert!(old.is_null());
 
                         self.maybe_free_pages();
                     } else if !self.to_free.load(Relaxed).is_null() {
@@ -176,7 +170,9 @@ impl<T: Sized> SharedArena<T> {
 
             self.maybe_free_pages();
 
-            std::thread::yield_now();
+            if self.free_list.load(Relaxed).is_null() {
+                std::thread::yield_now();
+            }
 
             // // This block is reached if an another thread is allocating or replacing
             // // self.pending_free (the block just above).
@@ -217,8 +213,8 @@ impl<T: Sized> SharedArena<T> {
 
             if truncate_at != 0 {
                 to_free.truncate(truncate_at);
-                let old_to_free = self.to_free.swap(Box::into_raw(to_free), Release);
-                assert!(old_to_free.is_null());
+                let old = self.to_free.swap(Box::into_raw(to_free), Release);
+                assert!(old.is_null());
                 self.to_free_delay.store(0, Relaxed);
             } else {
                 self.to_free_delay.store(DELAY_DROP_SHRINK, Relaxed);

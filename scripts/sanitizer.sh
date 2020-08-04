@@ -41,6 +41,24 @@ case "$1" in
         EXECUTABLE=$(find target/${2:-debug}/deps/shared_arena* -type f -executable -print)
         CMD="valgrind --error-exitcode=1 $EXECUTABLE"
         ;;
+    coverage)
+        export CARGO_INCREMENTAL="0"
+        export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
+        export RUSTDOCFLAGS="-Cpanic=abort"
+
+        cargo build --tests
+        cargo test --no-fail-fast
+        # cargo test --all-features --no-fail-fast
+
+        grcov ./target/debug/ -s . -t lcov --llvm --branch --ignore-not-existing -o ./coverage.info --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
+        # grcov ./target/debug/ -s src/ -t lcov --llvm --branch --ignore-not-existing -o ./coverage.info --ignore "*registry*" --token ${{ secrets.CODECOV_TOKEN }} --excl-line "grcov_ignore|assert"
+
+        # grcov ./target/debug/ -s src/ -t html --llvm --branch --ignore-not-existing -o ./target/debug/coverage --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
+
+        # grcov ./target/debug/ -s src/ -t lcov --llvm --branch --ignore-not-existing -o ./coverage.info --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
+        # grcov ./target/debug/ -s src/ -t coveralls+ --llvm --branch --ignore-not-existing -o ./coverage.json --ignore "*registry*" --token ${{ secrets.CODECOV_TOKEN }} --excl-line "grcov_ignore|assert"
+        exit
+        ;;
     *)
         echo -e "Available commands: address, leak, memory, valgrind\n"
         echo -e "Example:\n\t$0 leak"

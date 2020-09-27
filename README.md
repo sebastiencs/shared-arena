@@ -30,10 +30,7 @@
 Memory pools are usefull when allocating and deallocating lots of data of the same size.  
 Using a memory pool speed up those allocations/deallocations.  
 
-This crate provides 2 memory pools:
-- `SharedArena`: For multi-threaded usage
-- `Pool`: For single thread only
-
+This crate provides 3 memory pools:
 
 ![](https://github.com/sebastiencs/shared-arena/blob/images/table.svg)
 

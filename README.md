@@ -13,10 +13,10 @@
     <img src="https://img.shields.io/github/last-commit/sebastiencs/shared-arena?style=flat-square"
          alt="Last activity" />
   </a>
-  <!-- Status -->
-  <a href="https://github.com/sebastiencs/shared-arena">
-    <img src="https://img.shields.io/badge/status-stable-orange?style=flat-square"
-         alt="Status" />
+  <!-- Coverage -->
+  <a href="https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src">
+    <img src="https://img.shields.io/codecov/c/github/sebastiencs/shared-arena?style=flat-square"
+         alt="Coverage" />
   </a>
   <!-- Rust toolchain -->
   <a href="https://github.com/sebastiencs/shared-arena">

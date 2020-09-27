@@ -52,7 +52,7 @@ The graphic was generated with criterion, reproducible with `cargo bench`
 
 # Implementation details
 
-`SharedArena` and `Pool` use the same method of allocation, derived from a [free list](https://en.wikipedia.org/wiki/Free_list).  
+`SharedArena`, `Arena` and `Pool` use the same method of allocation, derived from a [free list](https://en.wikipedia.org/wiki/Free_list).  
 
 They allocate by pages, which include 63 elements, and keep a list of pages where at least 1 element is not used by the user.  
 A page has a bitfield of 64 bits, each bit indicates whether or not the element is used.  
@@ -68,4 +68,13 @@ With the bitfield above, the 4th element is unused.
 
 ![](https://github.com/sebastiencs/shared-arena/blob/images/shared_arena.svg)
 
-The difference between `SharedArena`/`Arena` and `Pool` is that `Pool` does not use atomics.
+The difference between `SharedArena`/`Arena` and `Pool` is that `Pool` does not use atomics.  
+Allocating with `Pool` is faster than `SharedArena` and `Arena`.  
+`Arena` is faster than `SharedArena`
+
+
+# Safety
+
+`unsafe` block are used in several places to dereference pointers.  
+The code is [100% covered](https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src) by the [miri](https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src) interpreter, valgrind and 3 sanitizers: address, leak and memory, on each commit.  
+See the [github actions](https://github.com/sebastiencs/shared-arena/actions)

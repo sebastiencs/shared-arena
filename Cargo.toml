@@ -3,6 +3,15 @@ name = "shared_arena"
 version = "0.1.0"
 authors = ["Sebastien Chapuis <sebastien@chapu.is>"]
 edition = "2018"
+license = "MIT"
+description = "A thread-safe & efficient memory pool "
+repository = "https://github.com/sebastiencs/shared-arena"
+keywords = ["memory", "pool", "thread"]
+categories = ["memory-management", "concurrency"]
+readme = "README.md"
+
+[badges]
+codecov = { repository = "sebastiencs/shared-arena" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

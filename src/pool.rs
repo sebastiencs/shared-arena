@@ -9,6 +9,28 @@ use crate::common::{BLOCK_PER_PAGE, Pointer};
 use crate::page::pool::{PagePool, drop_page};
 use crate::ArenaRc;
 
+/// A pointer to `T` in `Pool`
+///
+/// `PoolBox` implements [`DerefMut`] so it is directly mutable
+/// (without mutex or other synchronization methods).
+///
+/// It is not clonable and cannot be sent to others threads.
+///
+/// ```
+/// # use shared_arena::{PoolBox, Pool};
+/// let pool = Pool::new();
+/// let mut my_opt: PoolBox<Option<i32>> = pool.alloc(Some(10));
+///
+/// assert!(my_opt.is_some());
+/// assert_eq!(my_opt.take(), Some(10));
+/// assert!(my_opt.is_none());
+/// ```
+///
+/// [`ArenaArc`]: ./struct.ArenaArc.html
+/// [`Arena`]: ./struct.Arena.html
+/// [`SharedArena`]: ./struct.SharedArena.html
+/// [`DerefMut`]: https://doc.rust-lang.org/std/ops/trait.DerefMut.html
+///
 pub struct PoolBox<T> {
     block: NonNull<Block<T>>,
     _marker: PhantomData<*mut ()>
@@ -57,9 +79,14 @@ impl<T> Drop for PoolBox<T> {
     }
 }
 
-/// The difference with SharedArena is that Pool
-/// cannot be shared/sent to other threads, neither PoolBox or
-/// PoolRc
+/// A single threaded arena
+///
+/// It produces only `PoolBox` and `ArenaRc` which cannot be sent
+/// to other threads.
+///
+/// [`ArenaRc`]: ./struct.ArenaRc.html
+/// [`PoolBox`]: ./struct.PoolBox.html
+///
 pub struct Pool<T: Sized> {
     free: Rc<Pointer<PagePool<T>>>,
     page_list: Pointer<PagePool<T>>,

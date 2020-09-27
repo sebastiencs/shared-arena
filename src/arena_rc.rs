@@ -3,6 +3,49 @@ use std::ptr::NonNull;
 
 use crate::block::Block;
 
+/// A single threaded reference-counting pointer to `T` in the arena.  
+///
+/// It cannot be sent between threads.
+///
+/// When the last `ArenaRc` pointer to a given value is dropped,
+/// the pointed-to value is also dropped and its dedicated memory
+/// in the arena is marked as available for future allocation.
+///
+/// Shared mutable references in Rust is not allowed, if you need to
+/// mutate through an `ArenaRc`, use a Mutex, RwLock or one of
+/// the atomic types.
+///
+/// If you don't need to share the value, you should use [`ArenaBox`].
+///
+/// ## Cloning references
+///
+/// Creating a new reference from an existing reference counted pointer
+/// is done using the `Clone` trait implemented for `ArenaRc<T>`
+///
+/// ## `Deref` behavior
+///
+/// `ArenaArc<T>` automatically dereferences to `T`, so you can call
+/// `T`'s methods on a value of type `ArenaRc<T>`.
+///
+/// ```
+/// # use shared_arena::{ArenaRc, Arena};
+/// let arena = Arena::new();
+/// let my_num: ArenaRc<i32> = arena.alloc_rc(100i32);
+///
+/// assert!(my_num.is_positive());
+///
+/// let value = 1 + *my_num;
+/// assert_eq!(value, 101);
+///
+/// assert_eq!(*my_num.clone(), 100);
+/// ```
+///
+/// [`ArenaRc`]: ./struct.ArenaRc.html
+/// [`Arena`]: ./struct.Arena.html
+/// [`DerefMut`]: https://doc.rust-lang.org/std/ops/trait.DerefMut.html
+/// [`ArenaBox`]: ./struct.ArenaBox.html
+/// [`Clone`]: https://doc.rust-lang.org/std/clone/trait.Clone.html#tymethod.clone
+///
 pub struct ArenaRc<T> {
     block: NonNull<Block<T>>,
 }
@@ -14,7 +57,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaRc<T> {
 }
 
 impl<T> ArenaRc<T> {
-    pub fn new(mut block: NonNull<Block<T>>) -> ArenaRc<T> {
+    pub(crate) fn new(mut block: NonNull<Block<T>>) -> ArenaRc<T> {
         // ArenaRc is not Send, so we can make the counter non-atomic
         let counter_mut = unsafe { block.as_mut() }.counter.get_mut();
 

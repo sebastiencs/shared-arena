@@ -7,23 +7,19 @@ use crate::block::Block;
 
 /// A pointer to `T` in the arena
 ///
-/// The only difference with [`ArenaArc`] is that `ArenaBox` is not
-/// clonable, it implements [`DerefMut`] so it is directly mutable
+/// `ArenaBox` implements [`DerefMut`] so it is directly mutable
 /// (without mutex or other synchronization methods).
 ///
-/// There is no other difference, see the documentation of [`ArenaArc`]
-/// for more information.
-///
-/// Note that even if it is not clonable, it's still can be sent to others
-/// threads.
+/// It is not clonable and can be sent to others threads.
 ///
 /// ```
-/// use shared_arena::{ArenaBox, SharedArena};
-///
+/// # use shared_arena::{ArenaBox, SharedArena};
 /// let arena = SharedArena::new();
-/// let mut my_vec: ArenaBox<_> = arena.alloc(Vec::new());
+/// let mut my_opt: ArenaBox<Option<i32>> = arena.alloc(Some(10));
 ///
-/// my_vec.push(1);
+/// assert!(my_opt.is_some());
+/// assert_eq!(my_opt.take(), Some(10));
+/// assert!(my_opt.is_none());
 /// ```
 ///
 /// [`ArenaArc`]: ./struct.ArenaArc.html

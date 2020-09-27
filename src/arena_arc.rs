@@ -7,8 +7,8 @@ use crate::block::Block;
 
 /// A reference-counting pointer to `T` in the arena
 ///
-/// The type `ArenaArc<T>` provides shared ownership of a value of type `T`,
-/// in the [`Arena`]/[`SharedArena`].
+/// The type `ArenaArc<T>` provides shared ownership of a value of
+/// type `T` in the arena.  
 /// Invoking [`Clone`] on `ArenaArc` produces a new `ArenaArc`
 /// instance, which points to the same value, while increasing a
 /// reference count.
@@ -18,7 +18,7 @@ use crate::block::Block;
 /// in the arena is marked as available for future allocation.
 ///
 /// Shared mutable references in Rust is not allowed, if you need to
-/// mutate through an `AtomicArc`, use a Mutex, RwLock or one of
+/// mutate through an `ArenaArc`, use a Mutex, RwLock or one of
 /// the atomic types.
 ///
 /// If you don't need to share the value, you should use [`ArenaBox`].
@@ -26,20 +26,20 @@ use crate::block::Block;
 /// ## Cloning references
 ///
 /// Creating a new reference from an existing reference counted pointer
-/// is done using the `Clone` trait implemented for AtomicArc<T>
+/// is done using the `Clone` trait implemented for `ArenaArc<T>`
 ///
 /// ## `Deref` behavior
 ///
-/// `AtomicArc<T>` automatically dereferences to `T`, so you can call
-/// `T`'s methods on a value of type `AtomicArc<T>`.
+/// `ArenaArc<T>` automatically dereferences to `T`, so you can call
+/// `T`'s methods on a value of type `ArenaArc<T>`.
 ///
 /// ```
-/// use shared_arena::{ArenaArc, SharedArena};
-///
+/// # use shared_arena::{ArenaArc, SharedArena};
 /// let arena = SharedArena::new();
-/// let my_vec: ArenaArc<Vec<u8>> = arena.alloc_arc(Vec::new());
+/// let my_num: ArenaArc<i64> = arena.alloc_arc(-100i64);
 ///
-/// assert!(my_vec.len() == 0);
+/// assert!(my_num.is_negative());
+/// assert_eq!(*my_num.clone(), -100);
 /// ```
 ///
 /// [`Arc`]: https://doc.rust-lang.org/std/sync/struct.Arc.html
@@ -65,7 +65,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ArenaArc<T> {
 }
 
 impl<T> ArenaArc<T> {
-    pub fn new(block: NonNull<Block<T>>) -> ArenaArc<T> {
+    pub(crate) fn new(block: NonNull<Block<T>>) -> ArenaArc<T> {
         let counter_ref = &unsafe { block.as_ref() }.counter;
 
         // Don't use compare_exchange here, it's too expensive

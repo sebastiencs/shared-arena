@@ -12,7 +12,20 @@ use crate::{ArenaArc, ArenaBox, ArenaRc};
 
 /// An arena shareable across threads
 ///
-/// Pointers to the elements in the SharedArena are shareable as well.
+/// Pointers to the elements in the `SharedArena` are shareable as well.
+///
+/// ## Example
+///
+/// ```
+/// # use shared_arena::SharedArena;
+/// # use std::sync::Arc;
+/// let arena = Arc::new(SharedArena::new());
+/// let arena2 = arena.clone();
+///
+/// let item = arena.alloc(1);
+/// let item2 = arena2.alloc(2);
+/// assert_eq!(*item + *item2, 3);
+/// ```
 pub struct SharedArena<T: Sized> {
     free_list: AtomicPtr<PageSharedArena<T>>,
     pending_free_list: Arc<AtomicPtr<PageSharedArena<T>>>,
@@ -222,7 +235,7 @@ impl<T: Sized> SharedArena<T> {
         }
     }
 
-    /// Constructs a new SharedArena capable of holding at least `cap` elements
+    /// Constructs a new `SharedArena` capable of holding at least `cap` elements
     ///
     /// Because the arena allocate by page of 63 elements, it might be able to
     /// hold more elements than `cap`.
@@ -232,10 +245,10 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ## Example
     ///
-    /// ```ignore
-    /// use shared_arena::SharedArena;
-    ///
+    /// ```
+    /// # use shared_arena::SharedArena;
     /// let arena = SharedArena::with_capacity(2048);
+    /// # arena.alloc(1);
     /// ```
     pub fn with_capacity(cap: usize) -> SharedArena<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
@@ -256,17 +269,17 @@ impl<T: Sized> SharedArena<T> {
     }
 
 
-    /// Constructs a new SharedArena capable of holding exactly 63 elements
+    /// Constructs a new `SharedArena` capable of holding exactly 63 elements
     ///
     /// The Arena will reallocate itself if there is not enough space
     /// when allocating (with alloc* functions)
     ///
     /// ## Example
     ///
-    /// ```ignore
-    /// use shared_arena::SharedArena;
-    ///
+    /// ```
+    /// # use shared_arena::SharedArena;
     /// let arena = SharedArena::new();
+    /// # arena.alloc(1);
     /// ```
     pub fn new() -> SharedArena<T> {
         SharedArena::with_capacity(BLOCK_PER_PAGE)
@@ -278,10 +291,11 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::{ArenaBox, SharedArena};
-    ///
+    /// # use shared_arena::{ArenaBox, SharedArena};
     /// let arena = SharedArena::new();
     /// let my_num: ArenaBox<u8> = arena.alloc(0xFF);
+    ///
+    /// assert_eq!(*my_num, 255);
     /// ```
     ///
     /// [`ArenaBox`]: ./struct.ArenaBox.html
@@ -313,15 +327,13 @@ impl<T: Sized> SharedArena<T> {
     /// This function is not marked as `unsafe` because the caller will have
     /// to deal itself with [`MaybeUninit`].
     ///
-    /// A bad usage of this function is `unsafe` and can lead to undefined
-    /// behavior !
+    /// A bad usage of this function can lead to undefined behavior !
     ///
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::{ArenaBox, SharedArena};
-    /// use std::ptr;
-    ///
+    /// # use shared_arena::{ArenaBox, SharedArena};
+    /// # use std::ptr;
     /// #[derive(Copy, Clone)]
     /// struct MyStruct { }
     ///
@@ -330,7 +342,6 @@ impl<T: Sized> SharedArena<T> {
     /// let arena = SharedArena::new();
     /// let my_struct: ArenaBox<MyStruct> = arena.alloc_with(|place| {
     ///     unsafe {
-    ///         // The type must be Copy to use ptr::copy
     ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
     ///     }
     /// });
@@ -359,10 +370,11 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::{ArenaArc, SharedArena};
-    ///
+    /// # use shared_arena::{ArenaArc, SharedArena};
     /// let arena = SharedArena::new();
     /// let my_num: ArenaArc<u8> = arena.alloc_arc(0xFF);
+    ///
+    /// assert_eq!(*my_num, 255);
     /// ```
     ///
     /// [`ArenaArc`]: ./struct.ArenaArc.html
@@ -397,15 +409,13 @@ impl<T: Sized> SharedArena<T> {
     /// This function is not marked as `unsafe` because the caller will have
     /// to deal itself with [`MaybeUninit`].
     ///
-    /// A bad usage of this function is `unsafe` and can lead to undefined
-    /// behavior !
+    /// A bad usage of this function can lead to undefined behavior !
     ///
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::{ArenaArc, SharedArena};
-    /// use std::ptr;
-    ///
+    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// # use std::ptr;
     /// #[derive(Copy, Clone)]
     /// struct MyStruct {}
     ///
@@ -414,7 +424,6 @@ impl<T: Sized> SharedArena<T> {
     /// let arena = SharedArena::new();
     /// let my_struct: ArenaArc<MyStruct> = arena.alloc_arc_with(|place| {
     ///     unsafe {
-    ///         // The type must be Copy to use ptr::copy
     ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
     ///     }
     /// });
@@ -443,10 +452,11 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::{ArenaRc, SharedArena};
-    ///
+    /// # use shared_arena::{ArenaRc, SharedArena};
     /// let arena = SharedArena::new();
     /// let my_num: ArenaRc<u8> = arena.alloc_rc(0xFF);
+    ///
+    /// assert_eq!(*my_num, 255);
     /// ```
     ///
     /// [`ArenaRc`]: ./struct.ArenaRc.html
@@ -478,15 +488,13 @@ impl<T: Sized> SharedArena<T> {
     /// This function is not marked as `unsafe` because the caller will have
     /// to deal itself with [`MaybeUninit`].
     ///
-    /// A bad usage of this function is `unsafe` and can lead to undefined
-    /// behavior !
+    /// A bad usage of this function can lead to undefined behavior !
     ///
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::{ArenaRc, SharedArena};
-    /// use std::ptr;
-    ///
+    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// # use std::ptr;
     /// #[derive(Copy, Clone)]
     /// struct MyStruct {}
     ///
@@ -495,7 +503,6 @@ impl<T: Sized> SharedArena<T> {
     /// let arena = SharedArena::new();
     /// let my_struct: ArenaRc<MyStruct> = arena.alloc_rc_with(|place| {
     ///     unsafe {
-    ///         // The type must be Copy to use ptr::copy
     ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
     ///     }
     /// });
@@ -528,8 +535,7 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
-    ///
+    /// # use shared_arena::SharedArena;
     /// let mut arena = SharedArena::with_capacity(2048);
     /// let mut values = Vec::new();
     ///
@@ -637,8 +643,7 @@ impl<T: Sized> SharedArena<T> {
     /// ## Example
     ///
     /// ```
-    /// use shared_arena::SharedArena;
-    ///
+    /// # use shared_arena::SharedArena;
     /// let arena = SharedArena::new();
     /// let item = arena.alloc(1);
     /// let (used, free) = arena.stats();

@@ -19,7 +19,7 @@
 //! an allocation with `SharedArena` is 4+ faster than the
 //! system allocator:
 //!
-//! ```
+//! ```ignore
 //! Allocation/SharedArena               time:   [25.112 ns 25.678 ns 26.275 ns]
 //! Allocation/Box(SystemAllocator)      time:   [112.64 ns 114.44 ns 115.81 ns]
 //! ```
@@ -41,7 +41,7 @@
 //! Only 1 cpu instruction is necessary to find an unused element:
 //! such as `tzcnt`/`bsf` on `x86` and `clz` on `arm`
 //!
-//! ```
+//! ```ignore
 //! [..]1101101000
 //! ```
 //! With the bitfield above, the 4th element is unused.

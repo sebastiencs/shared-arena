@@ -55,7 +55,7 @@ The graphic was generated with criterion, reproducible with `cargo bench`
 `SharedArena` and `Pool` use the same method of allocation, derived from a [free list](https://en.wikipedia.org/wiki/Free_list).  
 
 They allocate by pages, which include 63 elements, and keep a list of pages where at least 1 element is not used by the user.  
-A page has a bitfield of 64 bits, each bit indicates whether or not the element is used. The 64th bit is reserved for the arena itself.  
+A page has a bitfield of 64 bits, each bit indicates whether or not the element is used.  
 
 In this bitfield, if the bit is set to zero, the element is already used.  
 So counting the number of trailing zeros gives us the index of an unused element.  
@@ -66,6 +66,6 @@ Only 1 cpu instruction is necessary to find an unused element: such as `tzcnt`/`
 ```
 With the bitfield above, the 4th element is unused.  
 
-The difference between `SharedArena` and `Pool` is that `SharedArena` uses atomics.
-
 ![](https://github.com/sebastiencs/shared-arena/blob/images/shared_arena.svg)
+
+The difference between `SharedArena`/`Arena` and `Pool` is that `Pool` does not use atomics.

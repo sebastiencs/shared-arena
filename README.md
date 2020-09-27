@@ -76,5 +76,5 @@ Allocating with `Pool` is faster than `SharedArena` and `Arena`.
 # Safety
 
 `unsafe` block are used in several places to dereference pointers.  
-The code is [100% covered](https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src) by the [miri](https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src) interpreter, valgrind and 3 sanitizers: address, leak and memory, on each commit.  
+The code is [100% covered](https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src) by the [miri](https://github.com/rust-lang/miri) interpreter, valgrind and 3 sanitizers: address, leak and memory, on each commit.  
 See the [github actions](https://github.com/sebastiencs/shared-arena/actions)

@@ -8,6 +8,9 @@
 //! - [`SharedArena`]
 //! - [`Arena`]
 //! - [`Pool`]
+//!
+//! For more details visit shared-arena's repository:  
+//! [https://github.com/sebastiencs/shared-arena](https://github.com/sebastiencs/shared-arena)
 //! 
 //! [`SharedArena`]: ./struct.SharedArena.html
 //! [`Arena`]: ./struct.Arena.html

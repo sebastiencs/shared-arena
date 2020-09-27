@@ -6,9 +6,15 @@ edition = "2018"
 license = "MIT"
 description = "A thread-safe & efficient memory pool "
 repository = "https://github.com/sebastiencs/shared-arena"
+homepage = "https://github.com/sebastiencs/shared-arena"
 keywords = ["memory", "pool", "thread"]
 categories = ["memory-management", "concurrency"]
 readme = "README.md"
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+    "README.md"
+]
 
 [badges]
 codecov = { repository = "sebastiencs/shared-arena" }
@@ -18,11 +24,8 @@ codecov = { repository = "sebastiencs/shared-arena" }
 [lib]
 bench = false
 
-[profile.bench]
-debug = true
-
-[profile.release]
-debug = true
+[dependencies]
+static_assertions = "1"
 
 [dev-dependencies]
 criterion = "0.3"
@@ -30,6 +33,3 @@ criterion = "0.3"
 [[bench]]
 name = "mempool"
 harness = false
-
-[dependencies]
-static_assertions = "1"

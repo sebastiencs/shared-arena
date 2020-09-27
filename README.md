@@ -9,6 +9,17 @@
 <br />
 
 <div align="center">
+  <!-- crates.io -->
+  <a href="https://crates.io/crates/shared_arena">
+    <img src="https://img.shields.io/crates/v/shared-arena?style=flat-square"
+         alt="Crate" />
+  </a>
+  <!-- docs.rs docs -->
+  <a href="https://docs.rs/shared_arena">
+    <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
+      alt="docs.rs docs" />
+  </a>
+  <!-- Activity -->
   <a href="https://github.com/sebastiencs/shared-arena">
     <img src="https://img.shields.io/github/last-commit/sebastiencs/shared-arena?style=flat-square"
          alt="Last activity" />

@@ -96,8 +96,6 @@ impl PageTaggedPtr {
     pub(crate) fn new(page_ptr: usize, index: usize, kind: PageKind) -> PageTaggedPtr {
         let tag = Self::make_tag(index, kind);
 
-        assert_eq!(page_ptr, page_ptr & 0x00FFFFFFFFFFFFFF, "{:064b} {:064b}", page_ptr, page_ptr & 0x00FFFFFFFFFFFFFF);
-
         PageTaggedPtr {
             data: (page_ptr & !(0b11111111 << 56)) | (tag << 56),
         }

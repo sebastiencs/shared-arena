@@ -873,6 +873,6 @@ mod tests {
             handle.join().unwrap();
         }
 
-        println!("NSHRINK={}", nshrink);
+        // println!("NSHRINK={}", nshrink);
     }
 }

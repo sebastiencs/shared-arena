@@ -822,7 +822,7 @@ mod tests {
             nanos % max
         }
 
-        let mut nshrink = 0;
+        // let mut nshrink = 0;
 
         let arena = Arena::<usize>::default();
 
@@ -862,7 +862,7 @@ mod tests {
             if with_shrink && rand % 200 == 0 {
                 // println!("SHRINKING", );
                 if arena.shrink_to_fit() {
-                    nshrink += 1;
+                    // nshrink += 1;
                 }
             }
             // println!("POP THERE", );

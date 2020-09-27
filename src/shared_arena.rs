@@ -1095,7 +1095,7 @@ mod tests {
 
                arena.shrink_to_fit();
 
-                let mut nshrink = 0;
+                // let mut nshrink = 0;
 
                 let mut values = Vec::with_capacity(nallocs);
                 for i in 0..(nallocs) {
@@ -1106,7 +1106,7 @@ mod tests {
                     }
                     if with_shrink && rand % 200 == 0 {
                         if arena.shrink_to_fit() {
-                            nshrink += 1;
+                            // nshrink += 1;
                         }
                     }
                 }

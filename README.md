@@ -43,7 +43,7 @@ Using a memory pool speed up those allocations/deallocations.
 
 This crate provides 3 memory pools:
 
-![](https://github.com/sebastiencs/shared-arena/blob/images/table.svg)
+![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/table.svg)
 
 # Performance
 
@@ -57,7 +57,7 @@ Allocation/Box(SystemAllocator)      time:   [112.64 ns 114.44 ns 115.81 ns]
 
 Performances with more allocations:
 
-![](https://github.com/sebastiencs/shared-arena/blob/images/bench.svg)
+![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/bench.svg)
 
 The graphic was generated with criterion, reproducible with `cargo bench`
 
@@ -77,7 +77,7 @@ Only 1 cpu instruction is necessary to find an unused element: such as `tzcnt`/`
 ```
 With the bitfield above, the 4th element is unused.  
 
-![](https://github.com/sebastiencs/shared-arena/blob/images/shared_arena.svg)
+![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/shared_arena.svg)
 
 The difference between `SharedArena`/`Arena` and `Pool` is that `Pool` does not use atomics.  
 Allocating with `Pool` is faster than `SharedArena` and `Arena`.  

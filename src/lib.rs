@@ -6,12 +6,11 @@
 //!
 //! Memory pools are usefull when allocating and deallocating lots of
 //! data of the same size.  
-//! Using a memory pool speed up those allocations/deallocations.  
+//! Using a memory pool speed up those allocations/deallocations.
 //!
 //! This crate provides 3 memory pools:
-//! - [`SharedArena`]
-//! - [`Arena`]
-//! - [`Pool`]
+//!
+//! ![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/table.svg)
 //!
 //! # Performance
 //!
@@ -23,6 +22,12 @@
 //! Allocation/SharedArena               time:   [25.112 ns 25.678 ns 26.275 ns]
 //! Allocation/Box(SystemAllocator)      time:   [112.64 ns 114.44 ns 115.81 ns]
 //! ```
+//!
+//! Performances with more allocations:
+//!
+//! ![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/bench.svg)
+//!
+//! The graphic was generated with criterion, reproducible with `cargo bench`
 //!
 //! # Implementation details
 //!
@@ -45,6 +50,8 @@
 //! [..]1101101000
 //! ```
 //! With the bitfield above, the 4th element is unused.
+//!
+//! ![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/shared_arena.svg)
 //!
 //! The difference between `SharedArena`/`Arena` and `Pool` is that
 //! `Pool` does not use atomics.  

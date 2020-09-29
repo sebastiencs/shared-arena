@@ -302,6 +302,8 @@ mod tests {
             counter: AtomicUsize::new(1),
             page: super::PageTaggedPtr {
                 data: !0,
+                #[cfg(not(target_pointer_width = "64"))]
+                ptr: !0,
             },
         };
 
@@ -313,6 +315,8 @@ mod tests {
     fn invalid_tagged_ptr() {
         super::PageKind::from(super::PageTaggedPtr {
             data: !0,
+            #[cfg(not(target_pointer_width = "64"))]
+            ptr: !0,
         });
     } // grcov_ignore
 }

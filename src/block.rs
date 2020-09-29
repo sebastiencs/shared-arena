@@ -59,14 +59,14 @@ impl<T> Block<T> {
 #[cfg(target_pointer_width = "64")]
 #[derive(Copy, Clone)]
 pub(crate) struct PageTaggedPtr {
-    pub data: usize,
+    pub(crate) data: usize,
 }
 
 #[cfg(not(target_pointer_width = "64"))]
 #[derive(Copy, Clone)]
-pub struct PageTaggedPtr {
-    ptr: usize,
-    data: usize
+pub(crate) struct PageTaggedPtr {
+    pub(crate) ptr: usize,
+    pub(crate) data: usize
 }
 
 impl std::fmt::Debug for PageTaggedPtr {

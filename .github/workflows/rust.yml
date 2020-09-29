@@ -203,6 +203,15 @@ jobs:
   miri:
     name: Miri
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          # 32 bits pointers
+          - i686-unknown-linux-gnu
+          # For big endian
+          - mips64-unknown-linux-gnuabi64
     steps:
       - uses: actions/checkout@v2
 
@@ -218,17 +227,13 @@ jobs:
         run: sed -i.bak '/criterion/d' ./Cargo.toml
 
       - uses: actions-rs/cargo@v1
-        name: Setup Miri
-        with:
-          command: miri
-          args: setup
-
-      - uses: actions-rs/cargo@v1
         name: Execute Miri
         with:
           command: miri
+          args: test --all-features --target ${{ matrix.target }}
+        env:
           # Disable isolation to get randomness
-          args: test --all-features -- -Zmiri-disable-isolation
+          MIRIFLAGS: "-Zmiri-disable-isolation"
 
   build:
     name: Build Cross Platforms

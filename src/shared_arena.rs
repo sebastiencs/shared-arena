@@ -40,7 +40,7 @@ pub struct SharedArena<T: Sized> {
 unsafe impl<T: Sized> Send for SharedArena<T> {}
 unsafe impl<T: Sized> Sync for SharedArena<T> {}
 
-const DELAY_DROP_SHRINK: u16 = 200;
+const DELAY_DROP_SHRINK: u16 = 20;
 
 struct WriterGuard<'a> {
     writer: &'a AtomicBool
@@ -181,7 +181,7 @@ impl<T: Sized> SharedArena<T> {
                 continue;
             };
 
-            self.maybe_free_pages();
+            // self.maybe_free_pages();
 
             if self.free_list.load(Relaxed).is_null() {
                 std::thread::yield_now();

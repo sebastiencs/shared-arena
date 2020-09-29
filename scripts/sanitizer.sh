@@ -50,7 +50,7 @@ case "$1" in
         cargo test --no-fail-fast
         # cargo test --all-features --no-fail-fast
 
-        grcov ./target/debug/ -s . -t lcov --llvm --branch --ignore-not-existing -o ./coverage.info --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
+        grcov ./target/debug/ -s . -t lcov --llvm --branch --ignore-not-existing -o ./coverage.info --ignore "*rust/library*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
         # grcov ./target/debug/ -s src/ -t lcov --llvm --branch --ignore-not-existing -o ./coverage.info --ignore "*registry*" --token ${{ secrets.CODECOV_TOKEN }} --excl-line "grcov_ignore|assert"
 
         # grcov ./target/debug/ -s src/ -t html --llvm --branch --ignore-not-existing -o ./target/debug/coverage --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"

@@ -40,7 +40,7 @@ pub struct SharedArena<T: Sized> {
 unsafe impl<T: Sized> Send for SharedArena<T> {}
 unsafe impl<T: Sized> Sync for SharedArena<T> {}
 
-const DELAY_DROP_SHRINK: u16 = 20;
+const DELAY_DROP_SHRINK: u16 = 10;
 
 struct WriterGuard<'a> {
     writer: &'a AtomicBool

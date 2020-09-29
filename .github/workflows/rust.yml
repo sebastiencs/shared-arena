@@ -226,11 +226,18 @@ jobs:
       - name: Remove criterion
         run: sed -i.bak '/criterion/d' ./Cargo.toml
 
-      - uses: actions-rs/cargo@v1
-        name: Execute Miri
-        with:
-          command: miri
-          args: test --all-features --target ${{ matrix.target }}
+      # - uses: actions-rs/cargo@v1
+      #   name: Execute Miri
+      #   with:
+      #     command: miri
+      #     args: test --all-features --target ${{ matrix.target }}
+      #   env:
+      #     # Disable isolation to get randomness
+      #     MIRIFLAGS: "-Zmiri-disable-isolation"
+
+      - name: Execute Miri
+        run: |
+          seq 100 | xargs -Iz cargo miri test --all-features --target ${{ matrix.target }}
         env:
           # Disable isolation to get randomness
           MIRIFLAGS: "-Zmiri-disable-isolation"

@@ -19,11 +19,6 @@
     <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
       alt="docs.rs docs" />
   </a>
-  <!-- Activity -->
-  <a href="https://github.com/sebastiencs/shared-arena">
-    <img src="https://img.shields.io/github/last-commit/sebastiencs/shared-arena?style=flat-square"
-         alt="Last activity" />
-  </a>
   <!-- Coverage -->
   <a href="https://codecov.io/gh/sebastiencs/shared-arena/tree/master/src">
     <img src="https://img.shields.io/codecov/c/github/sebastiencs/shared-arena?style=flat-square"

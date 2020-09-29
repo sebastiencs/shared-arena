@@ -181,10 +181,10 @@ impl<T: Sized> SharedArena<T> {
                 continue;
             };
 
-            // self.maybe_free_pages();
-
             if self.free_list.load(Relaxed).is_null() {
                 std::thread::yield_now();
+            } else {
+                self.maybe_free_pages();
             }
 
             // // This block is reached if an another thread is allocating or replacing

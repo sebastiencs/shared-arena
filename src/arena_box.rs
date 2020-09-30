@@ -12,6 +12,11 @@ use crate::block::Block;
 ///
 /// It is not clonable and can be sent to others threads.
 ///
+/// ## `Deref` & `DerefMut` behavior
+///
+/// `ArenaBox<T>` automatically dereferences to `T`, so you can call
+/// `T`'s methods on a value of type `ArenaBox<T>`.
+///
 /// ```
 /// # use shared_arena::{ArenaBox, SharedArena};
 /// let arena = SharedArena::new();

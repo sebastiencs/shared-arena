@@ -24,7 +24,7 @@ use crate::block::Block;
 ///
 /// ## `Deref` behavior
 ///
-/// `ArenaArc<T>` automatically dereferences to `T`, so you can call
+/// `ArenaRc<T>` automatically dereferences to `T`, so you can call
 /// `T`'s methods on a value of type `ArenaRc<T>`.
 ///
 /// ```

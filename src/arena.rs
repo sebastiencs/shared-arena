@@ -620,6 +620,35 @@ impl<T> std::fmt::Debug for Arena<T> {
     }
 }
 
+/// Code that should fail to compile.
+/// compile_fail is supported on doc only
+///
+/// Fails because Arena doesn't implement Sync, which Arc requires
+/// ```compile_fail
+/// use shared_arena::Arena;
+/// use std::sync::Arc;
+///
+/// let arena: Arc<Arena<i32>> = Arc::new(Arena::new());
+///
+/// std::thread::spawn(move || {
+///     std::mem::drop(arena)
+/// });
+/// ```
+///
+/// ```compile_fail
+/// use shared_arena::Arena;
+/// use std::sync::Arc;
+///
+/// let arena: Arc<Arena<i32>> = Arc::new(Arena::new());
+///
+/// std::thread::spawn(move || {
+///     arena.alloc(1);
+/// });
+/// arena.alloc(2);
+/// ```
+#[allow(dead_code)]
+fn arena_fail() {}
+
 #[cfg(test)]
 mod tests {
     use super::Arena;

@@ -245,6 +245,34 @@ impl<T: Sized> Pool<T> {
         (size, free)
     }
 
+    /// Shrinks the capacity of the arena as much as possible.
+    ///
+    /// It will drop all pages that are unused (no ArenaRc or PoolBox
+    /// points to it).  
+    /// If there is still one or more references to a page, the page
+    /// won't be dropped.
+    ///
+    /// The dedicated memory will be deallocated during this call.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::Pool;
+    /// let mut arena = Pool::with_capacity(2048);
+    /// let mut values = Vec::new();
+    ///
+    /// assert_eq!(arena.stats(), (0, 2079));
+    ///
+    /// for _ in 0..80 {
+    ///     values.push(arena.alloc(0xFF));
+    /// }
+    ///
+    /// arena.shrink_to_fit();
+    ///
+    /// let (used, free) = arena.stats();
+    /// assert!(used == 80, free == 46);
+    ///
+    /// ```
     pub fn shrink_to_fit(&mut self) {
 
         let mut current: &Pointer<PagePool<T>> = &self.free;

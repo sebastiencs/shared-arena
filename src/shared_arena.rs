@@ -17,14 +17,24 @@ use crate::{ArenaArc, ArenaBox, ArenaRc};
 /// ## Example
 ///
 /// ```
-/// # use shared_arena::SharedArena;
-/// # use std::sync::Arc;
+/// use shared_arena::SharedArena;
+/// use std::sync::Arc;
+///
 /// let arena = Arc::new(SharedArena::new());
 /// let arena2 = arena.clone();
 ///
+/// let value = std::thread::spawn(move || {
+///     arena2.alloc(100)
+/// });
+///
 /// let item = arena.alloc(1);
-/// let item2 = arena2.alloc(2);
-/// assert_eq!(*item + *item2, 3);
+///
+/// assert_eq!(*item + *value.join().unwrap(), 101);
+///
+/// std::mem::drop(arena);
+///
+/// // The value is still valid, even if the arena has been dropped
+/// assert_eq!(*item, 1);
 /// ```
 pub struct SharedArena<T: Sized> {
     free_list: AtomicPtr<PageSharedArena<T>>,
@@ -527,10 +537,20 @@ impl<T: Sized> SharedArena<T> {
 
     /// Shrinks the capacity of the arena as much as possible.
     ///
-    /// It will drop all pages that are unused (no ArenaBox/ArenaArc point to
-    /// it)
-    /// If there is still one or more references to a page, the page won't
-    /// be dropped.
+    /// It will drop all pages that are unused (no Arena{Box,Arc,Rc}
+    /// points to it).  
+    /// If there is still one or more references to a page, the page
+    /// won't be dropped.
+    ///
+    /// The dedicated memory will be deallocated in an
+    /// undetermined time in the future, not during the function call.
+    /// While the time is not determined, it's guarantee that it will
+    /// be free.  
+    /// `shrink_to_fit` on `Arena` and `Pool` don't have this behavior.
+    ///
+    /// Note that if `SharedArena` becomes full and one of the alloc_*
+    /// function is called, it might reuses the pages freed by this
+    /// function, if it has not be deallocated yet.
     ///
     /// ## Example
     ///

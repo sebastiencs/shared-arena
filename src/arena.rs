@@ -16,6 +16,20 @@ use crate::{ArenaRc, ArenaBox, ArenaArc};
 /// It can be sent to other threads but is not `Sync`.  
 /// Pointers to the elements in the `Arena` are shareable between
 /// threads.
+///
+/// ```
+/// use shared_arena::Arena;
+///
+/// let arena = Arena::new();
+///
+/// let value = std::thread::spawn(move || {
+///     arena.alloc(100)
+/// });
+///
+/// // The value is still valid, even if the arena has been dropped
+/// // in the other thread
+/// assert_eq!(*value.join().unwrap(), 100);
+/// ```
 pub struct Arena<T: Sized> {
     free_list: Pointer<PageArena<T>>,
     pending_free_list: Arc<AtomicPtr<PageArena<T>>>,
@@ -368,9 +382,12 @@ impl<T: Sized> Arena<T> {
 
     /// Shrinks the capacity of the arena as much as possible.
     ///
-    /// It will drop all pages that are unused.  
-    /// If there is still one or more references to a page, the page won't
-    /// be dropped.
+    /// It will drop all pages that are unused (no Arena{Box,Arc,Rc}
+    /// points to it).  
+    /// If there is still one or more references to a page, the page
+    /// won't be dropped.
+    ///
+    /// The dedicated memory will be deallocated during this call.
     ///
     /// ## Example
     ///

@@ -1,9 +1,6 @@
 // #![forbid(missing_docs)]
 // #![forbid(missing_doc_code_examples)]
 
-//! For more details visit shared-arena's repository:  
-//! [https://github.com/sebastiencs/shared-arena](https://github.com/sebastiencs/shared-arena)
-//!
 //! Memory pools are usefull when allocating and deallocating lots of
 //! data of the same size.  
 //! Using a memory pool speed up those allocations/deallocations.

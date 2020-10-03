@@ -50,9 +50,43 @@ pub struct ArenaRc<T> {
     block: NonNull<Block<T>>,
 }
 
+impl<T: std::fmt::Display> std::fmt::Display for ArenaRc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let mut my_num = arena.alloc_rc(10);
+    ///
+    /// println!("{}", my_num);
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&**self, f)
+    }
+}
+
 impl<T: std::fmt::Debug> std::fmt::Debug for ArenaRc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_opt = arena.alloc_rc(Some(10));
+    ///
+    /// println!("{:?}", my_opt);
+    /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T> std::fmt::Pointer for ArenaRc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_num = arena.alloc_rc(10);
+    ///
+    /// println!("{:p}", my_num);
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ptr: *const T = &**self;
+        std::fmt::Pointer::fmt(&ptr, f)
     }
 }
 
@@ -75,6 +109,13 @@ impl<T> Clone for ArenaRc<T> {
     /// Make a clone of the ArenaRc pointer.
     ///
     /// This increase the reference counter.
+    /// ```
+    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_num = arena.alloc_rc(10);
+    ///
+    /// assert_eq!(*my_num, *my_num.clone());
+    /// ```
     #[inline]
     fn clone(&self) -> ArenaRc<T> {
         // ArenaRc is not Send, so we can make the counter non-atomic
@@ -91,6 +132,14 @@ impl<T> Clone for ArenaRc<T> {
 
 impl<T> std::ops::Deref for ArenaRc<T> {
     type Target = T;
+
+    /// ```
+    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_opt = arena.alloc_rc(Some(10));
+    ///
+    /// assert!(my_opt.is_some());
+    /// ```
     fn deref(&self) -> &T {
         unsafe { &*self.block.as_ref().value.get() }
     }
@@ -101,6 +150,15 @@ impl<T> std::ops::Deref for ArenaRc<T> {
 /// If it is the last reference to that value, the value is
 /// also dropped
 impl<T> Drop for ArenaRc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaRc, Arena};
+    /// let arena = Arena::new();
+    /// let my_num = arena.alloc_rc(10);
+    ///
+    /// assert_eq!(arena.stats(), (1, 62));
+    /// std::mem::drop(my_num);
+    /// assert_eq!(arena.stats(), (0, 63));
+    /// ```
     fn drop(&mut self) {
         // ArenaRc is not Send, so we can make the counter non-atomic
         let counter_mut = unsafe { self.block.as_mut() }.counter.get_mut();

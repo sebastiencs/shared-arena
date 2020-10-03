@@ -58,9 +58,43 @@ pub struct ArenaArc<T> {
 unsafe impl<T: Send> Send for ArenaArc<T> {}
 unsafe impl<T: Send + Sync> Sync for ArenaArc<T> {}
 
+impl<T: std::fmt::Display> std::fmt::Display for ArenaArc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_num = arena.alloc(10);
+    ///
+    /// println!("{}", my_num);
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&**self, f)
+    }
+}
+
 impl<T: std::fmt::Debug> std::fmt::Debug for ArenaArc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_opt: ArenaArc<Option<i32>> = arena.alloc_arc(Some(10));
+    ///
+    /// println!("{:?}", my_opt);
+    /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T> std::fmt::Pointer for ArenaArc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_num = arena.alloc_arc(10);
+    ///
+    /// println!("{:p}", my_num);
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ptr: *const T = &**self;
+        std::fmt::Pointer::fmt(&ptr, f)
     }
 }
 
@@ -87,6 +121,13 @@ impl<T> Clone for ArenaArc<T> {
     /// Make a clone of the ArenaArc pointer.
     ///
     /// This increase the reference counter.
+    /// ```
+    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_num = arena.alloc_arc(10);
+    ///
+    /// assert_eq!(*my_num, *my_num.clone());
+    /// ```
     #[inline]
     fn clone(&self) -> ArenaArc<T> {
         let counter_ref = &unsafe { self.block.as_ref() }.counter;
@@ -103,6 +144,14 @@ impl<T> Clone for ArenaArc<T> {
 
 impl<T> std::ops::Deref for ArenaArc<T> {
     type Target = T;
+
+    /// ```
+    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_opt: ArenaArc<Option<i32>> = arena.alloc_arc(Some(10));
+    ///
+    /// assert!(my_opt.is_some());
+    /// ```
     fn deref(&self) -> &T {
         unsafe { &*self.block.as_ref().value.get() }
     }
@@ -113,6 +162,15 @@ impl<T> std::ops::Deref for ArenaArc<T> {
 /// If it is the last reference to that value, the value is
 /// also dropped
 impl<T> Drop for ArenaArc<T> {
+    /// ```
+    /// # use shared_arena::{ArenaBox, Arena};
+    /// let arena = Arena::new();
+    /// let my_num = arena.alloc_arc(10);
+    ///
+    /// assert_eq!(arena.stats(), (1, 62));
+    /// std::mem::drop(my_num);
+    /// assert_eq!(arena.stats(), (0, 63));
+    /// ```
     fn drop(&mut self) {
         let block = unsafe { self.block.as_ref() };
 

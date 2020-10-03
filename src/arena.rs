@@ -21,14 +21,17 @@ use crate::{ArenaRc, ArenaBox, ArenaArc};
 /// use shared_arena::Arena;
 ///
 /// let arena = Arena::new();
+/// let foo = arena.alloc(1);
 ///
-/// let value = std::thread::spawn(move || {
-///     arena.alloc(100)
+/// let bar = std::thread::spawn(move || {
+///     let bar = arena.alloc(100);
+///     std::mem::drop(arena);
+///     bar
 /// });
 ///
-/// // The value is still valid, even if the arena has been dropped
+/// // The values are still valid, even if the arena has been dropped
 /// // in the other thread
-/// assert_eq!(*value.join().unwrap(), 100);
+/// assert_eq!(*bar.join().unwrap() + *foo, 101);
 /// ```
 pub struct Arena<T: Sized> {
     free_list: Pointer<PageArena<T>>,
@@ -561,7 +564,7 @@ impl<T: Sized> Arena<T> {
     }
 }
 
-impl<T> Drop for Arena<T> {
+impl<T: Sized> Drop for Arena<T> {
     fn drop(&mut self) {
         let mut next = self.full_list.load(Relaxed);
 

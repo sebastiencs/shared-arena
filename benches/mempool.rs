@@ -3,11 +3,11 @@
 
 extern crate test;
 
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+// use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 // use rustorrent::cache_line::CacheAligned;
 
-use test::Bencher;
+// use test::Bencher;
 
 // pub fn acquire_free_node_u8(bitfields: &[CacheAligned<AtomicU8>]) -> Option<usize> {
 //     for byte in &bitfields[..] {
@@ -100,9 +100,10 @@ use test::Bencher;
 //     });
 // }
 
-use shared_arena::{SharedArena, Arena, ArenaBox, Pool};
+use shared_arena::{SharedArena, Arena, Pool};
 //use rustorrent::memory_pool::{Arena, SharedArena, ArenaBox, Pool};
 
+#[allow(dead_code)]
 #[derive(Copy, Clone)]
 struct MyStruct {
     a: Option<usize>,
@@ -124,7 +125,7 @@ impl Default for MyStruct {
 
 //https://chromium.googlesource.com/chromiumos/platform/crosvm/+/refs/heads/master/data_model/src/volatile_memory.rs
 
-use std::mem::ManuallyDrop;
+// use std::mem::ManuallyDrop;
 
 // #[bench]
 // fn shared_arena(b: &mut Bencher) {
@@ -141,16 +142,16 @@ use std::mem::ManuallyDrop;
 //     arena.stats();
 // }
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, PlotConfiguration, AxisScale};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     // let mut arena = Arena::<MyStruct>::with_capacity(100000000);
-    let mut shared_arena = SharedArena::<MyStruct>::with_capacity(10000000);
-    // let mut local_arena = LocalArena::<MyStruct>::with_capacity(10000000);
-    let mut pool = Pool::<MyStruct>::with_capacity(10000000);
+    let shared_arena = SharedArena::<MyStruct>::with_capacity(10000000);
+    let arena = Arena::<MyStruct>::with_capacity(10000000);
+    let pool = Pool::<MyStruct>::with_capacity(10000000);
 
-    let my_struct = MyStruct::default();
-    let size = std::mem::size_of::<MyStruct>();
+    // let my_struct = MyStruct::default();
+    // let size = std::mem::size_of::<MyStruct>();
 
     // c.bench_with_input(BenchmarkId::new("input_default", 1), &my_struct, |b, s| {
     //     b.iter_with_large_drop(|| arena.alloc(black_box(*s)))
@@ -182,10 +183,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     // });
 
-    // let mut group = c.benchmark_group("Alloc");
-
-    let plot_config = PlotConfiguration::default()
-        .summary_scale(AxisScale::Linear);
+    // let plot_config = PlotConfiguration::default()
+    //     .summary_scale(AxisScale::Linear);
 
     // group.plot_config(plot_config);
 
@@ -204,29 +203,31 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     // return;
 
+    let mut group = c.benchmark_group("SingleAlloc");
+
     // group.bench_function("arena_arc", |b| {
     //     b.iter_with_large_drop(|| arena.alloc_arc(black_box(MyStruct::default())))
     // });
 
-    // group.bench_function("shared_arena", |b| {
-    //     b.iter_with_large_drop(|| shared_arena.alloc(black_box(MyStruct::default())))
-    // });
+    group.bench_function("SharedArena", |b| {
+        b.iter_with_large_drop(|| shared_arena.alloc(black_box(MyStruct::default())))
+    });
 
-    // group.bench_function("local_arena", |b| {
-    //     b.iter_with_large_drop(|| local_arena.alloc(black_box(MyStruct::default())))
-    // });
+    group.bench_function("Arena", |b| {
+        b.iter_with_large_drop(|| arena.alloc(black_box(MyStruct::default())))
+    });
 
-    // group.bench_function("pool", |b| {
-    //     b.iter_with_large_drop(|| pool.alloc(black_box(MyStruct::default())))
-    // });
+    group.bench_function("Pool", |b| {
+        b.iter_with_large_drop(|| pool.alloc(black_box(MyStruct::default())))
+    });
 
-    // group.bench_function("normal", |b| {
-    //     b.iter_with_large_drop(|| Box::new(black_box(MyStruct::default())))
-    // });
+    group.bench_function("Box (System Allocator)", |b| {
+        b.iter_with_large_drop(|| Box::new(black_box(MyStruct::default())))
+    });
 
     // return;
 
-    // group.finish();
+    group.finish();
 
     let mut group = c.benchmark_group("Benchmark");
     for i in (1..=100_001).step_by(10000) {
@@ -234,6 +235,27 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let i = (i - 1).max(1);
 
         // let mut vec = Vec::with_capacity(10_000_000);
+
+        group.bench_with_input(BenchmarkId::new("Box (System Allocator)", i), &i, move |b, n| {
+            let n = *n;
+
+            b.iter_custom(move |iters| {
+                let mut duration = Duration::new(0, 0);
+
+                for _ in 0..iters {
+                    let mut vec = Vec::with_capacity(n);
+
+                    let start = Instant::now();
+                    for _ in 0..n {
+                        let res = Box::new(black_box(MyStruct::default()));
+                        vec.push(black_box(res));
+                    }
+                    duration += start.elapsed()
+                }
+
+                duration
+            });
+        });
 
         group.bench_with_input(BenchmarkId::new("Arena", i), &i, move |b, n| {
             let n = *n;
@@ -244,7 +266,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 for _ in 0..iters {
                     //println!("NEW {}", n);
 
-                    let mut arena = Arena::<MyStruct>::with_capacity(n);
+                    let arena = Arena::<MyStruct>::with_capacity(n);
                     let mut vec = Vec::with_capacity(n);
 
                     let start = Instant::now();
@@ -260,28 +282,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             });
         });
 
-        // group.bench_with_input(BenchmarkId::new("RustBox", i), &i, move |b, n| {
-        //     let n = *n;
-
-        //     b.iter_custom(move |iters| {
-        //         let mut duration = Duration::new(0, 0);
-
-        //         for _ in 0..iters {
-        //             let mut vec = Vec::with_capacity(n);
-
-        //             let start = Instant::now();
-        //             for _ in 0..n {
-        //                 let res = Box::new(black_box(MyStruct::default()));
-        //                 vec.push(black_box(res));
-        //             }
-        //             duration += start.elapsed()
-        //         }
-
-        //         duration
-        //     });
-        // });
-
-
         use std::time::{Instant, Duration};
 
         group.bench_with_input(BenchmarkId::new("Pool", i), &i, move |b, n| {
@@ -291,7 +291,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 let mut duration = Duration::new(0, 0);
 
                 for _ in 0..iters {
-                    let mut arena = Pool::<MyStruct>::with_capacity(n);
+                    let arena = Pool::<MyStruct>::with_capacity(n);
                     let mut vec = Vec::with_capacity(n);
 
                     let start = Instant::now();

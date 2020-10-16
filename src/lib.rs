@@ -52,8 +52,6 @@
 //!
 //! The difference between `SharedArena`/`Arena` and `Pool` is that
 //! `Pool` does not use atomics.  
-//! Allocating with `Pool` is faster than `SharedArena` and `Arena`.  
-//! `Arena` is faster than `SharedArena`
 //!
 //! # Safety
 //!

@@ -242,40 +242,40 @@ jobs:
           # Disable isolation to get randomness
           MIRIFLAGS: "-Zmiri-disable-isolation"
 
-  build:
-    name: Build Cross Platforms
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - arm-linux-androideabi
-          - armv7-linux-androideabi
-          - arm-unknown-linux-gnueabihf
-          - armv7-unknown-linux-gnueabihf
-          - powerpc64-unknown-linux-gnu
-          - aarch64-linux-android
-          - x86_64-pc-windows-gnu
-          - x86_64-pc-windows-msvc
-          - i686-pc-windows-gnu
-          - i686-pc-windows-msvc
-          - i686-unknown-linux-gnu
+  # build:
+  #   name: Build Cross Platforms
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       target:
+  #         - arm-linux-androideabi
+  #         - armv7-linux-androideabi
+  #         - arm-unknown-linux-gnueabihf
+  #         - armv7-unknown-linux-gnueabihf
+  #         - powerpc64-unknown-linux-gnu
+  #         - aarch64-linux-android
+  #         - x86_64-pc-windows-gnu
+  #         - x86_64-pc-windows-msvc
+  #         - i686-pc-windows-gnu
+  #         - i686-pc-windows-msvc
+  #         - i686-unknown-linux-gnu
 
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        name: Install toolchain
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: actions-rs/toolchain@v1
+  #       name: Install toolchain
+  #       with:
+  #         toolchain: stable
+  #         target: ${{ matrix.target }}
+  #         override: true
 
-      - name: Remove criterion
-        run: sed -i.bak '/criterion/d' ./Cargo.toml
+  #     - name: Remove criterion
+  #       run: sed -i.bak '/criterion/d' ./Cargo.toml
 
-      - uses: actions-rs/cargo@v1
-        name: Build
-        with:
-          use-cross: true
-          command: build
-          args: --release --target=${{ matrix.target }}
+  #     - uses: actions-rs/cargo@v1
+  #       name: Build
+  #       with:
+  #         use-cross: true
+  #         command: build
+  #         args: --release --target=${{ matrix.target }}

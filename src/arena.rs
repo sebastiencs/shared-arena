@@ -650,7 +650,7 @@ impl<T> std::fmt::Debug for Arena<T> {
 /// arena.alloc(2);
 /// ```
 #[allow(dead_code)]
-fn arena_fail() {}
+fn arena_fail() {} // grcov_ignore
 
 #[cfg(test)]
 mod tests {

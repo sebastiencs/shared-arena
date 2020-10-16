@@ -396,6 +396,35 @@ impl<T> std::fmt::Debug for Pool<T> {
     }
 }
 
+/// Code that should fail to compile.
+/// compile_fail is supported on doc only
+///
+/// Fails because Pool doesn't implement Sync, which Arc requires
+/// ```compile_fail
+/// use shared_arena::Pool;
+/// use std::sync::Arc;
+///
+/// let arena: Arc<Pool<i32>> = Arc::new(Pool::new());
+///
+/// std::thread::spawn(move || {
+///     std::mem::drop(arena)
+/// });
+/// ```
+///
+/// ```compile_fail
+/// use shared_arena::Pool;
+/// use std::sync::Arc;
+///
+/// let arena: Arc<Pool<i32>> = Arc::new(Pool::new());
+///
+/// std::thread::spawn(move || {
+///     arena.alloc(1);
+/// });
+/// arena.alloc(2);
+/// ```
+#[allow(dead_code)]
+fn arena_fail() {} // grcov_ignore
+
 #[cfg(test)]
 mod tests {
     use super::Pool;

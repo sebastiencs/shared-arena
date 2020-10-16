@@ -138,6 +138,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Install 32 bits libs
+        run: sudo apt install -y gcc-multilib
+        if: ${{ matrix.target == 'i686-unknown-linux-gnu' }}
+
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:

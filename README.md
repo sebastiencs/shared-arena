@@ -75,8 +75,6 @@ With the bitfield above, the 4th element is unused.
 ![](https://raw.githubusercontent.com/sebastiencs/shared-arena/images/shared_arena.svg)
 
 The difference between `SharedArena`/`Arena` and `Pool` is that `Pool` does not use atomics.  
-Allocating with `Pool` is faster than `SharedArena` and `Arena`.  
-`Arena` is faster than `SharedArena`
 
 
 # Safety

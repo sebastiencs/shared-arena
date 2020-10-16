@@ -111,7 +111,7 @@ impl PageTaggedPtr {
         }
     }
 
-    fn make_tag(index: usize, kind: PageKind) -> usize {
+    pub(crate) fn make_tag(index: usize, kind: PageKind) -> usize {
         let kind: usize = kind.into();
         // Index is 6 bits at most
         // Kind is 2 bit
@@ -180,4 +180,112 @@ impl Into<usize> for PageKind {
             PageKind::Pool => 2
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PageKind, PageTaggedPtr};
+
+    #[test]
+    fn pagekind_into() {
+        let num: usize = PageKind::SharedArena.into();
+        assert_eq!(num, 0);
+
+        let num: usize = PageKind::Arena.into();
+        assert_eq!(num, 1);
+
+        let num: usize = PageKind::Pool.into();
+        assert_eq!(num, 2);
+    }
+
+    #[test]
+    fn page_tagged_ptr() {
+        let real_ptr = Box::into_raw(Box::new(1));
+
+        for index_block in 0..64 {
+            let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, index_block, PageKind::SharedArena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, real_ptr as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::SharedArena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, index_block, PageKind::Arena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, real_ptr as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Arena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, index_block, PageKind::Pool);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, real_ptr as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::SharedArena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::SharedArena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::Arena);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Arena);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+
+            let tagged_ptr = PageTaggedPtr::new(16, index_block, PageKind::Pool);
+            let ptr = tagged_ptr.page_ptr::<usize>().as_ptr();
+            assert_eq!(ptr, 16 as *mut _, "{:064b}", ptr as usize);
+            assert_eq!(tagged_ptr.page_kind(), PageKind::Pool);
+            assert_eq!(tagged_ptr.index_block(), index_block);
+        }
+
+        unsafe { Box::from_raw(real_ptr) };
+    }
+
+    #[test]
+    fn page_tagged_ptr_debug() {
+        let real_ptr = Box::into_raw(Box::new(1));
+
+        let tagged_ptr = PageTaggedPtr::new(real_ptr as usize, 63, PageKind::Arena);
+        println!("{:?} {:?}", tagged_ptr.clone(), PageKind::Arena);
+
+        let tagged_ptr_2 = tagged_ptr;
+        let tagged_ptr_3 = tagged_ptr_2.clone();
+
+        assert!(tagged_ptr.data == tagged_ptr_2.data);
+        assert!(tagged_ptr.data == tagged_ptr_3.data);
+
+        unsafe { Box::from_raw(real_ptr) };
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_block() {
+        use std::cell::UnsafeCell;
+        use std::ptr::NonNull;
+        use std::sync::atomic::AtomicUsize;
+
+        let mut block = super::Block {
+            value: UnsafeCell::new(1),
+            counter: AtomicUsize::new(1),
+            page: super::PageTaggedPtr {
+                data: !0,
+                #[cfg(not(target_pointer_width = "64"))]
+                ptr: !0,
+            },
+        };
+
+        super::Block::drop_block(NonNull::from(&mut block));
+    } // grcov_ignore
+
+    #[test]
+    #[should_panic]
+    fn invalid_tagged_ptr() {
+        super::PageKind::from(super::PageTaggedPtr {
+            data: !0,
+            #[cfg(not(target_pointer_width = "64"))]
+            ptr: !0,
+        });
+    } // grcov_ignore
 }

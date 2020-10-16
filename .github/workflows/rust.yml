@@ -129,6 +129,12 @@ jobs:
   grcov:
     name: Coverage
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - i686-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v2
 
@@ -138,6 +144,7 @@ jobs:
           toolchain: nightly
           override: true
           profile: minimal
+          target: ${{ matrix.target }}
 
       - name: Install grcov
         uses: actions-rs/install@v0.1
@@ -151,7 +158,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --no-fail-fast
+          args: --all-features --no-fail-fast --target ${{ matrix.target }}
         env:
           CARGO_INCREMENTAL: "0"
           RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests -Cpanic=abort"
@@ -160,7 +167,7 @@ jobs:
       - id: coverage
         name: Generate Coverage & Upload
         run: |
-          grcov ./target/debug/ -s . -t lcov --llvm --ignore-not-existing -o ./coverage.info --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
+          grcov ./target/${{ matrix.target }}/debug/ -s . -t lcov --llvm --ignore-not-existing -o ./coverage.info --ignore "*rust/src*" --ignore "*registry*" --excl-line "grcov_ignore|assert"
 
           # grcov ./target/debug/ -s src/ -t lcov --llvm --ignore-not-existing -o ./coverage.info --ignore "*registry*" --token ${{ secrets.CODECOV_TOKEN }} --excl-line "grcov_ignore|assert"
 

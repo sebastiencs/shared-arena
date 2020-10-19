@@ -329,32 +329,42 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ## Safety
     ///
-    /// It is the caller responsability to initialize properly the value.
+    /// It is the caller responsability to initialize properly the value.  
+    /// `initializer` must return `&T`, this is a way to ensure that
+    /// its parameter `&mut MaybeUninit<T>` has been "consumed".
+    ///
+    /// If `initializer` returns a different reference than its parameter,
+    /// the function will panic.
+    ///
     /// When the [`ArenaBox`] is dropped, the value is also
     /// dropped. If the value is not initialized correctly, it will
     /// drop an unitialized value, which is undefined behavior.
-    ///
-    /// This function is not marked as `unsafe` because the caller will have
-    /// to deal itself with [`MaybeUninit`].
-    ///
-    /// A bad usage of this function can lead to undefined behavior !
     ///
     /// ## Example
     ///
     /// ```
     /// # use shared_arena::{ArenaBox, SharedArena};
     /// # use std::ptr;
-    /// #[derive(Copy, Clone)]
-    /// struct MyStruct { }
+    /// # use core::mem::MaybeUninit;
+    /// struct MyData {
+    ///     a: usize
+    /// }
     ///
-    /// let ref_struct: &MyStruct = &MyStruct{};
-    ///
-    /// let arena = SharedArena::new();
-    /// let my_struct: ArenaBox<MyStruct> = arena.alloc_with(|place| {
+    /// fn initialize_data<'a>(uninit: &'a mut MaybeUninit<MyData>, source: &MyData) -> &'a MyData {
     ///     unsafe {
-    ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
+    ///         let ptr = uninit.as_mut_ptr();
+    ///         ptr::copy(source, ptr, 1);
+    ///         &*ptr
     ///     }
+    /// }
+    ///
+    /// let arena = SharedArena::<MyData>::new();
+    /// let source = MyData { a: 101 };
+    ///
+    /// let data = arena.alloc_with(|uninit| {
+    ///     initialize_data(uninit, &source)
     /// });
+    /// assert!(data.a == 101);
     /// ```
     ///
     /// [`ArenaBox`]: ./struct.ArenaBox.html
@@ -362,13 +372,18 @@ impl<T: Sized> SharedArena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_with<F>(&self, initializer: F) -> ArenaBox<T>
     where
-        F: Fn(&mut MaybeUninit<T>)
+        F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
-            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            assert_eq!(
+                ptr as * const T,
+                reference as * const T,
+                "`initializer` must return a reference of its parameter"
+            );
         }
 
         ArenaBox::new(block)
@@ -411,32 +426,42 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ## Safety
     ///
-    /// It is the caller responsability to initialize properly the value.
+    /// It is the caller responsability to initialize properly the value.  
+    /// `initializer` must return `&T`, this is a way to ensure that
+    /// its parameter `&mut MaybeUninit<T>` has been "consumed".
+    ///
+    /// If `initializer` returns a different reference than its parameter,
+    /// the function will panic.
+    ///
     /// When all [`ArenaArc`] pointing that value are dropped, the value
     /// is also dropped. If the value is not initialized correctly, it will
     /// drop an unitialized value, which is undefined behavior.
     ///
-    /// This function is not marked as `unsafe` because the caller will have
-    /// to deal itself with [`MaybeUninit`].
-    ///
-    /// A bad usage of this function can lead to undefined behavior !
-    ///
     /// ## Example
     ///
     /// ```
-    /// # use shared_arena::{ArenaArc, SharedArena};
+    /// # use shared_arena::{ArenaBox, SharedArena};
     /// # use std::ptr;
-    /// #[derive(Copy, Clone)]
-    /// struct MyStruct {}
+    /// # use core::mem::MaybeUninit;
+    /// struct MyData {
+    ///     a: usize
+    /// }
     ///
-    /// let ref_struct: &MyStruct = &MyStruct {};
-    ///
-    /// let arena = SharedArena::new();
-    /// let my_struct: ArenaArc<MyStruct> = arena.alloc_arc_with(|place| {
+    /// fn initialize_data<'a>(uninit: &'a mut MaybeUninit<MyData>, source: &MyData) -> &'a MyData {
     ///     unsafe {
-    ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
+    ///         let ptr = uninit.as_mut_ptr();
+    ///         ptr::copy(source, ptr, 1);
+    ///         &*ptr
     ///     }
+    /// }
+    ///
+    /// let arena = SharedArena::<MyData>::new();
+    /// let source = MyData { a: 101 };
+    ///
+    /// let data = arena.alloc_arc_with(|uninit| {
+    ///     initialize_data(uninit, &source)
     /// });
+    /// assert!(data.a == 101);
     /// ```
     ///
     /// [`ArenaArc`]: ./struct.ArenaArc.html
@@ -444,13 +469,18 @@ impl<T: Sized> SharedArena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_arc_with<F>(&self, initializer: F) -> ArenaArc<T>
     where
-        F: Fn(&mut MaybeUninit<T>)
+        F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
-            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            assert_eq!(
+                ptr as * const T,
+                reference as * const T,
+                "`initializer` must return a reference of its parameter"
+            );
         }
 
         ArenaArc::new(block)
@@ -490,32 +520,42 @@ impl<T: Sized> SharedArena<T> {
     ///
     /// ## Safety
     ///
-    /// It is the caller responsability to initialize properly the value.
+    /// It is the caller responsability to initialize properly the value.  
+    /// `initializer` must return `&T`, this is a way to ensure that
+    /// its parameter `&mut MaybeUninit<T>` has been "consumed".
+    ///
+    /// If `initializer` returns a different reference than its parameter,
+    /// the function will panic.
+    ///
     /// When all [`ArenaRc`] pointing that value are dropped, the value
     /// is also dropped. If the value is not initialized correctly, it will
     /// drop an unitialized value, which is undefined behavior.
     ///
-    /// This function is not marked as `unsafe` because the caller will have
-    /// to deal itself with [`MaybeUninit`].
-    ///
-    /// A bad usage of this function can lead to undefined behavior !
-    ///
     /// ## Example
     ///
     /// ```
-    /// # use shared_arena::{ArenaRc, SharedArena};
+    /// # use shared_arena::SharedArena;
     /// # use std::ptr;
-    /// #[derive(Copy, Clone)]
-    /// struct MyStruct {}
+    /// # use core::mem::MaybeUninit;
+    /// struct MyData {
+    ///     a: usize
+    /// }
     ///
-    /// let ref_struct: &MyStruct = &MyStruct {};
-    ///
-    /// let arena = SharedArena::new();
-    /// let my_struct: ArenaRc<MyStruct> = arena.alloc_rc_with(|place| {
+    /// fn initialize_data<'a>(uninit: &'a mut MaybeUninit<MyData>, source: &MyData) -> &'a MyData {
     ///     unsafe {
-    ///         ptr::copy(ref_struct, place.as_mut_ptr(), 1);
+    ///         let ptr = uninit.as_mut_ptr();
+    ///         ptr::copy(source, ptr, 1);
+    ///         &*ptr
     ///     }
+    /// }
+    ///
+    /// let arena = SharedArena::<MyData>::new();
+    /// let source = MyData { a: 101 };
+    ///
+    /// let data = arena.alloc_rc_with(|uninit| {
+    ///     initialize_data(uninit, &source)
     /// });
+    /// assert!(data.a == 101);
     /// ```
     ///
     /// [`ArenaRc`]: ./struct.ArenaRc.html
@@ -523,13 +563,18 @@ impl<T: Sized> SharedArena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
-        F: Fn(&mut MaybeUninit<T>)
+        F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
-            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            assert_eq!(
+                ptr as * const T,
+                reference as * const T,
+                "`initializer` must return a reference of its parameter"
+            );
         }
 
         ArenaRc::new(block)
@@ -542,10 +587,13 @@ impl<T: Sized> SharedArena<T> {
     /// If there is still one or more references to a page, the page
     /// won't be dropped.
     ///
+    /// This is a slow function and it should not be called in a hot
+    /// path.
+    ///
     /// The dedicated memory will be deallocated in an
     /// undetermined time in the future, not during the function call.
     /// While the time is not determined, it's guarantee that it will
-    /// be free.  
+    /// be deallocated.  
     /// `shrink_to_fit` on `Arena` and `Pool` don't have this behavior.
     ///
     /// Note that if `SharedArena` becomes full and one of the alloc_*
@@ -659,6 +707,9 @@ impl<T: Sized> SharedArena<T> {
     }
 
     /// Returns a tuple of non-free and free spaces in the arena
+    ///
+    /// This is a slow function and it should not be called in a hot
+    /// path.
     ///
     /// ## Example
     ///
@@ -814,9 +865,38 @@ impl<T> std::fmt::Debug for SharedArena<T> {
     }
 }
 
+/// Code that should fail to compile.
+/// compile_fail is supported on doc only
+///
+/// ```compile_fail
+/// use shared_arena::SharedArena;
+///
+/// let arena: SharedArena<i32> = SharedArena::new();
+/// arena.alloc_with(|_| {});
+/// ```
+///
+/// ```compile_fail
+/// use shared_arena::SharedArena;
+///
+/// let arena: SharedArena<i32> = SharedArena::new();
+/// arena.alloc_rc_with(|_| {});
+/// ```
+///
+/// ```compile_fail
+/// use shared_arena::SharedArena;
+///
+/// let arena: SharedArena<i32> = SharedArena::new();
+/// arena.alloc_arc_with(|_| {});
+/// ```
+///
+#[allow(dead_code)]
+fn arena_fail() {} // grcov_ignore
+
 #[cfg(test)]
 mod tests {
     use super::SharedArena;
+    use std::mem::MaybeUninit;
+    use std::ptr;
 
     #[cfg(target_pointer_width = "64") ]
     #[test]
@@ -1014,6 +1094,77 @@ mod tests {
     // }
 
     #[test]
+    fn alloc_with_initializer() {
+        struct MyData {
+            a: usize
+        }
+
+        fn initialize_data<'d>(uninit: &'d mut MaybeUninit<MyData>, source: &MyData) -> &'d MyData {
+            unsafe {
+                let ptr = uninit.as_mut_ptr();
+                ptr::copy(source, ptr, 1);
+                &*ptr
+            }
+        }
+
+        let arena = SharedArena::<MyData>::new();
+
+        let source = MyData { a: 101 };
+        let data = arena.alloc_with(|uninit| {
+            initialize_data(uninit, &source)
+        });
+        assert!(data.a == 101);
+
+        let source = MyData { a: 102 };
+        let data = arena.alloc_rc_with(|uninit| {
+            initialize_data(uninit, &source)
+        });
+        assert!(data.a == 102);
+
+        let source = MyData { a: 103 };
+        let data = arena.alloc_arc_with(|uninit| {
+            initialize_data(uninit, &source)
+        });
+        assert!(data.a == 103);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
+    fn alloc_with_panic() {
+        let arena = SharedArena::<usize>::new();
+        const SOURCE: usize = 10;
+
+        let _ = arena.alloc_with(|_| {
+            &SOURCE
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
+    fn alloc_rc_with_panic() {
+        let arena = SharedArena::<usize>::new();
+        const SOURCE: usize = 10;
+
+        let _ = arena.alloc_rc_with(|_| {
+            &SOURCE
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
+    fn alloc_arc_with_panic() {
+        let arena = SharedArena::<usize>::new();
+        const SOURCE: usize = 10;
+
+        let _ = arena.alloc_arc_with(|_| {
+            &SOURCE
+        });
+    }
+
+    #[test]
     fn alloc_fns() {
         let arena = SharedArena::<usize>::new();
 
@@ -1021,16 +1172,19 @@ mod tests {
 
         let a = arena.alloc_with(|place| unsafe {
             ptr::copy(&101, place.as_mut_ptr(), 1);
+            &*place.as_mut_ptr()
         });
         assert!(*a == 101);
 
         let a = arena.alloc_arc_with(|place| unsafe {
             ptr::copy(&102, place.as_mut_ptr(), 1);
+            &*place.as_mut_ptr()
         });
         assert!(*a == 102);
 
         let a = arena.alloc_rc_with(|place| unsafe {
             ptr::copy(&103, place.as_mut_ptr(), 1);
+            &*place.as_mut_ptr()
         });
         assert!(*a == 103);
 
@@ -1053,9 +1207,11 @@ mod tests {
 
             let a = arena.alloc_with(|place| unsafe {
                 ptr::copy(&101, place.as_mut_ptr(), 1);
+                &*place.as_mut_ptr()
             });
             let b = arena.alloc_arc_with(|place| unsafe {
                 ptr::copy(&102, place.as_mut_ptr(), 1);
+                &*place.as_mut_ptr()
             });
             let c = arena.alloc(103);
             let d = arena.alloc_arc(104);

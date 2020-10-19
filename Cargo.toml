@@ -1,6 +1,6 @@
 [package]
 name = "shared_arena"
-version = "0.8.3"
+version = "0.8.4"
 authors = ["Sebastien Chapuis <sebastien@chapu.is>"]
 edition = "2018"
 license = "MIT"

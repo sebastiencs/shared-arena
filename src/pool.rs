@@ -95,10 +95,37 @@ pub struct Pool<T: Sized> {
 }
 
 impl<T: Sized> Pool<T> {
+    /// Constructs a new `Pool` capable of holding exactly 63 elements
+    ///
+    /// The Pool will reallocate itself if there is not enough space
+    /// when allocating (with alloc* functions)
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::Pool;
+    /// let arena = Pool::new();
+    /// # arena.alloc(1);
+    /// ```
     pub fn new() -> Pool<T> {
         Self::with_capacity(1)
     }
 
+    /// Constructs a new `Pool` capable of holding at least `cap` elements
+    ///
+    /// Because the arena allocate by page of 63 elements, it might be able to
+    /// hold more elements than `cap`.
+    ///
+    /// The Pool will reallocate itself if there is not enough space
+    /// when allocating (with alloc* functions)
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::Pool;
+    /// let arena = Pool::with_capacity(2048);
+    /// # arena.alloc(1);
+    /// ```
     pub fn with_capacity(cap: usize) -> Pool<T> {
         let npages = ((cap.max(1) - 1) / BLOCK_PER_PAGE) + 1;
         let free = Rc::new(Cell::new(std::ptr::null_mut()));
@@ -152,6 +179,20 @@ impl<T: Sized> Pool<T> {
         }
     }
 
+    /// Writes a value in the arena, and returns an [`PoolBox`]
+    /// pointing to that value.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::{PoolBox, Pool};
+    /// let arena = Pool::new();
+    /// let my_num: PoolBox<u8> = arena.alloc(0xFF);
+    ///
+    /// assert_eq!(*my_num, 255);
+    /// ```
+    ///
+    /// [`PoolBox`]: ./struct.PoolBox.html
     pub fn alloc(&self, value: T) -> PoolBox<T> {
         let block = self.find_place();
 
@@ -163,20 +204,89 @@ impl<T: Sized> Pool<T> {
         PoolBox::new(block)
     }
 
+    /// Finds an empty space in the arena and calls the function `initializer`
+    /// with its argument pointing to that space.
+    /// It returns an [`PoolBox`] pointing to the newly initialized value.
+    ///
+    /// The difference with [`alloc`] is that it has the benefit of
+    /// avoiding intermediate copies of the value.
+    ///
+    /// ## Safety
+    ///
+    /// It is the caller responsability to initialize properly the value.  
+    /// `initializer` must return `&T`, this is a way to ensure that
+    /// its parameter `&mut MaybeUninit<T>` has been "consumed".
+    ///
+    /// If `initializer` returns a different reference than its parameter,
+    /// the function will panic.
+    ///
+    /// When the [`PoolBox`] is dropped, the value is also
+    /// dropped. If the value is not initialized correctly, it will
+    /// drop an unitialized value, which is undefined behavior.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::Pool;
+    /// # use std::ptr;
+    /// # use core::mem::MaybeUninit;
+    /// struct MyData {
+    ///     a: usize
+    /// }
+    ///
+    /// fn initialize_data<'a>(uninit: &'a mut MaybeUninit<MyData>, source: &MyData) -> &'a MyData {
+    ///     unsafe {
+    ///         let ptr = uninit.as_mut_ptr();
+    ///         ptr::copy(source, ptr, 1);
+    ///         &*ptr
+    ///     }
+    /// }
+    ///
+    /// let arena = Pool::<MyData>::new();
+    /// let source = MyData { a: 101 };
+    ///
+    /// let data = arena.alloc_with(|uninit| {
+    ///     initialize_data(uninit, &source)
+    /// });
+    /// assert!(data.a == 101);
+    /// ```
+    ///
+    /// [`PoolBox`]: ./struct.PoolBox.html
+    /// [`alloc`]: struct.Pool.html#method.alloc
+    /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_with<F>(&self, initializer: F) -> PoolBox<T>
     where
-        F: Fn(&mut MaybeUninit<T>)
+        F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
-            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            assert_eq!(
+                ptr as * const T,
+                reference as * const T,
+                "`initializer` must return a reference of its parameter"
+            );
         }
 
         PoolBox::new(block)
     }
 
+    /// Writes a value in the arena, and returns an [`ArenaRc`]
+    /// pointing to that value.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::{ArenaRc, Pool};
+    /// let arena = Pool::new();
+    /// let my_num: ArenaRc<u8> = arena.alloc_rc(0xFF);
+    ///
+    /// assert_eq!(*my_num, 255);
+    /// ```
+    ///
+    /// [`ArenaRc`]: ./struct.ArenaRc.html
     pub fn alloc_rc(&self, value: T) -> ArenaRc<T> {
         let block = self.find_place();
 
@@ -188,20 +298,89 @@ impl<T: Sized> Pool<T> {
         ArenaRc::new(block)
     }
 
+    /// Finds an empty space in the arena and calls the function `initializer`
+    /// with its argument pointing to that space.
+    /// It returns an [`ArenaRc`] pointing to the newly initialized value.
+    ///
+    /// The difference with [`alloc_rc`] is that it has the benefit of
+    /// avoiding intermediate copies of the value.
+    ///
+    /// ## Safety
+    ///
+    /// It is the caller responsability to initialize properly the value.  
+    /// `initializer` must return `&T`, this is a way to ensure that
+    /// its parameter `&mut MaybeUninit<T>` has been "consumed".
+    ///
+    /// If `initializer` returns a different reference than its parameter,
+    /// the function will panic.
+    ///
+    /// When all [`ArenaRc`] pointing that value are dropped, the value
+    /// is also dropped. If the value is not initialized correctly, it will
+    /// drop an unitialized value, which is undefined behavior.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::Pool;
+    /// # use std::ptr;
+    /// # use core::mem::MaybeUninit;
+    /// struct MyData {
+    ///     a: usize
+    /// }
+    ///
+    /// fn initialize_data<'a>(uninit: &'a mut MaybeUninit<MyData>, source: &MyData) -> &'a MyData {
+    ///     unsafe {
+    ///         let ptr = uninit.as_mut_ptr();
+    ///         ptr::copy(source, ptr, 1);
+    ///         &*ptr
+    ///     }
+    /// }
+    ///
+    /// let arena = Pool::<MyData>::new();
+    /// let source = MyData { a: 101 };
+    ///
+    /// let data = arena.alloc_rc_with(|uninit| {
+    ///     initialize_data(uninit, &source)
+    /// });
+    /// assert!(data.a == 101);
+    /// ```
+    ///
+    /// [`ArenaRc`]: ./struct.ArenaRc.html
+    /// [`alloc_rc`]: #method.alloc_rc
+    /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
-        F: Fn(&mut MaybeUninit<T>)
+        F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
 
         unsafe {
             let ptr = block.as_ref().value.get();
-            initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+            assert_eq!(
+                ptr as * const T,
+                reference as * const T,
+                "`initializer` must return a reference of its parameter"
+            );
         }
 
         ArenaRc::new(block)
     }
 
+    /// Returns a tuple of non-free and free spaces in the arena
+    ///
+    /// This is a slow function and it should not be called in a hot
+    /// path.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use shared_arena::Pool;
+    /// let arena = Pool::new();
+    /// let item = arena.alloc(1);
+    /// let (used, free) = arena.stats();
+    /// assert!(used == 1 && free == 62);
+    /// ```
     pub fn stats(&self) -> (usize, usize) {
         let mut next = self.page_list.get();
         let mut used = 0;
@@ -251,6 +430,9 @@ impl<T: Sized> Pool<T> {
     /// points to it).  
     /// If there is still one or more references to a page, the page
     /// won't be dropped.
+    ///
+    /// This is a slow function and it should not be called in a hot
+    /// path.
     ///
     /// The dedicated memory will be deallocated during this call.
     ///
@@ -387,7 +569,7 @@ impl<T> std::fmt::Debug for Pool<T> {
         let blocks_used: usize = vec.iter().map(|p| p.used).sum();
         let blocks_free: usize = vec.iter().map(|p| p.free).sum();
 
-        f.debug_struct("Arena")
+        f.debug_struct("Pool")
          .field("blocks_free", &blocks_free)
          .field("blocks_used", &blocks_used)
          .field("npages", &npages)
@@ -554,11 +736,13 @@ mod tests {
 
         let a = arena.alloc_with(|place| unsafe {
             ptr::copy(&101, place.as_mut_ptr(), 1);
+            &*place.as_mut_ptr()
         });
         assert!(*a == 101);
 
         let a = arena.alloc_rc_with(|place| unsafe {
             ptr::copy(&102, place.as_mut_ptr(), 1);
+            &*place.as_mut_ptr()
         });
         assert!(*a == 102);
 
@@ -578,9 +762,11 @@ mod tests {
 
             let a = arena.alloc_with(|place| unsafe {
                 ptr::copy(&101, place.as_mut_ptr(), 1);
+                &*place.as_mut_ptr()
             });
             let b = arena.alloc_rc_with(|place| unsafe {
                 ptr::copy(&102, place.as_mut_ptr(), 1);
+                &*place.as_mut_ptr()
             });
             let c = arena.alloc(103);
             let d = arena.alloc_rc(104);

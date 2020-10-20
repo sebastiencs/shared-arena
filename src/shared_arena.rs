@@ -375,6 +375,7 @@ impl<T: Sized> SharedArena<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaBox::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -386,7 +387,7 @@ impl<T: Sized> SharedArena<T> {
             );
         }
 
-        ArenaBox::new(block)
+        result
     }
 
     /// Writes a value in the arena, and returns an [`ArenaArc`]
@@ -472,10 +473,12 @@ impl<T: Sized> SharedArena<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaArc::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
             let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
+
             assert_eq!(
                 ptr as * const T,
                 reference as * const T,
@@ -483,7 +486,7 @@ impl<T: Sized> SharedArena<T> {
             );
         }
 
-        ArenaArc::new(block)
+        result
     }
 
     /// Writes a value in the arena, and returns an [`ArenaRc`]
@@ -566,6 +569,7 @@ impl<T: Sized> SharedArena<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaRc::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -577,7 +581,7 @@ impl<T: Sized> SharedArena<T> {
             );
         }
 
-        ArenaRc::new(block)
+        result
     }
 
     /// Shrinks the capacity of the arena as much as possible.
@@ -1130,7 +1134,6 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
     fn alloc_with_panic() {
         let arena = SharedArena::<usize>::new();
         const SOURCE: usize = 10;
@@ -1142,7 +1145,6 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
     fn alloc_rc_with_panic() {
         let arena = SharedArena::<usize>::new();
         const SOURCE: usize = 10;
@@ -1154,7 +1156,6 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
     fn alloc_arc_with_panic() {
         let arena = SharedArena::<usize>::new();
         const SOURCE: usize = 10;

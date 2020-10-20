@@ -259,6 +259,7 @@ impl<T: Sized> Pool<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = PoolBox::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -270,7 +271,7 @@ impl<T: Sized> Pool<T> {
             );
         }
 
-        PoolBox::new(block)
+        result
     }
 
     /// Writes a value in the arena, and returns an [`ArenaRc`]
@@ -353,6 +354,7 @@ impl<T: Sized> Pool<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaRc::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -364,7 +366,7 @@ impl<T: Sized> Pool<T> {
             );
         }
 
-        ArenaRc::new(block)
+        result
     }
 
     /// Returns a tuple of non-free and free spaces in the arena
@@ -610,6 +612,8 @@ fn arena_fail() {} // grcov_ignore
 #[cfg(test)]
 mod tests {
     use super::Pool;
+    use std::mem::MaybeUninit;
+    use std::ptr;
 
     #[cfg(target_pointer_width = "64") ]
     #[test]
@@ -726,6 +730,57 @@ mod tests {
 
         values.push(arena.alloc(1));
         assert_eq!(arena.size_lists(), (2, 2));
+    }
+
+    #[test]
+    fn alloc_with_initializer() {
+        struct MyData {
+            a: usize
+        }
+
+        fn initialize_data<'d>(uninit: &'d mut MaybeUninit<MyData>, source: &MyData) -> &'d MyData {
+            unsafe {
+                let ptr = uninit.as_mut_ptr();
+                ptr::copy(source, ptr, 1);
+                &*ptr
+            }
+        }
+
+        let arena = Pool::<MyData>::new();
+
+        let source = MyData { a: 101 };
+        let data = arena.alloc_with(|uninit| {
+            initialize_data(uninit, &source)
+        });
+        assert!(data.a == 101);
+
+        let source = MyData { a: 102 };
+        let data = arena.alloc_rc_with(|uninit| {
+            initialize_data(uninit, &source)
+        });
+        assert!(data.a == 102);
+    }
+
+    #[test]
+    #[should_panic]
+    fn alloc_with_panic() {
+        let arena = Pool::<usize>::new();
+        const SOURCE: usize = 10;
+
+        let _ = arena.alloc_with(|_| {
+            &SOURCE
+        });
+    }
+
+    #[test]
+    #[should_panic]
+    fn alloc_rc_with_panic() {
+        let arena = Pool::<usize>::new();
+        const SOURCE: usize = 10;
+
+        let _ = arena.alloc_rc_with(|_| {
+            &SOURCE
+        });
     }
 
     #[test]

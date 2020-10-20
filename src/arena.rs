@@ -226,6 +226,7 @@ impl<T: Sized> Arena<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaBox::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -237,7 +238,7 @@ impl<T: Sized> Arena<T> {
             );
         }
 
-        ArenaBox::new(block)
+        result
     }
 
     /// Writes a value in the arena, and returns an [`ArenaArc`]
@@ -320,6 +321,7 @@ impl<T: Sized> Arena<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaArc::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -331,7 +333,7 @@ impl<T: Sized> Arena<T> {
             );
         }
 
-        ArenaArc::new(block)
+        result
     }
 
     /// Writes a value in the arena, and returns an [`ArenaRc`]
@@ -414,6 +416,7 @@ impl<T: Sized> Arena<T> {
         F: Fn(&mut MaybeUninit<T>) -> &T
     {
         let block = self.find_place();
+        let result = ArenaRc::new(block);
 
         unsafe {
             let ptr = block.as_ref().value.get();
@@ -425,7 +428,7 @@ impl<T: Sized> Arena<T> {
             );
         }
 
-        ArenaRc::new(block)
+        result
     }
 
     /// Shrinks the capacity of the arena as much as possible.
@@ -884,7 +887,6 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
     fn alloc_with_panic() {
         let arena = Arena::<usize>::new();
         const SOURCE: usize = 10;
@@ -896,7 +898,6 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
     fn alloc_rc_with_panic() {
         let arena = Arena::<usize>::new();
         const SOURCE: usize = 10;
@@ -908,7 +909,6 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg_attr(miri, ignore)] // Miri detect leaked memory
     fn alloc_arc_with_panic() {
         let arena = Arena::<usize>::new();
         const SOURCE: usize = 10;

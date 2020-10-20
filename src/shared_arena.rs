@@ -1141,7 +1141,7 @@ mod tests {
         let _ = arena.alloc_with(|_| {
             &SOURCE
         });
-    }
+    } // grcov_ignore
 
     #[test]
     #[should_panic]
@@ -1152,7 +1152,7 @@ mod tests {
         let _ = arena.alloc_rc_with(|_| {
             &SOURCE
         });
-    }
+    } // grcov_ignore
 
     #[test]
     #[should_panic]
@@ -1163,7 +1163,7 @@ mod tests {
         let _ = arena.alloc_arc_with(|_| {
             &SOURCE
         });
-    }
+    } // grcov_ignore
 
     #[test]
     fn alloc_fns() {

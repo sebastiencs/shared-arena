@@ -140,14 +140,12 @@ impl<T> ArenaArc<T> {
             return Err(this);
         }
 
-        unsafe {
-            let elem = block.value.get().read();
+        let elem = unsafe { block.value.get().read() };
 
-            // Release the block but DO NOT drop the elem.
-            Block::drop_block_impl(this.block);
+        // Release the block but DO NOT drop the elem.
+        Block::drop_block_impl(this.block);
 
-            Ok(elem)
-        }
+        Ok(elem)
     }
 }
 

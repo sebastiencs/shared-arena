@@ -114,6 +114,13 @@ impl<T> ArenaArc<T> {
         ArenaArc { block }
     }
 
+    /// ```
+    /// # use shared_arena::{ArenaArc, Arena};
+    /// let arena = Arena::new();
+    /// let my_nums = arena.alloc_arc(vec![1, 2, 3, 4]);
+    ///
+    /// assert_eq!(ArenaArc::try_unwrap(my_nums).unwrap(), vec![1, 2, 3, 4]);
+    /// ```
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
         let block = unsafe { this.block.as_ref() };
 

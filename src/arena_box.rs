@@ -108,6 +108,15 @@ impl<T> ArenaBox<T> {
         counter_ref.store(0, Relaxed);
     }
 
+    /// ```
+    /// # use shared_arena::{ArenaBox, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_opt: ArenaBox<Option<i32>> = arena.alloc(Some(10));
+    ///
+    /// let val = ArenaBox::into_inner(my_opt);
+    ///
+    /// assert!(val.is_some());
+    /// ```
     pub fn into_inner(boxed: Self) -> T {
         let block = unsafe { boxed.block.as_ref() };
 

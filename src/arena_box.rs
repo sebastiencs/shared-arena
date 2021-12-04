@@ -113,6 +113,7 @@ impl<T> ArenaBox<T> {
     /// # use shared_arena::{ArenaBox, SharedArena};
     /// let arena = SharedArena::new();
     /// let my_opt: ArenaBox<Option<i32>> = arena.alloc(Some(10));
+    /// assert!(my_opt.is_some());
     ///
     /// let val = ArenaBox::into_inner(my_opt);
     ///

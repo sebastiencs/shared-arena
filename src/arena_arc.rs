@@ -1,5 +1,3 @@
-
-
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
 
@@ -114,6 +112,23 @@ impl<T> ArenaArc<T> {
         counter_ref.store(1, Relaxed);
 
         ArenaArc { block }
+    }
+
+    pub fn try_unwrap(this: Self) -> Result<T, Self> {
+        let block = unsafe { this.block.as_ref() };
+
+        if block.counter.load(Acquire) > 1 {
+            return Err(this);
+        }
+
+        unsafe {
+            let elem = block.value.get().read();
+
+            // Release the block but DO NOT drop the elem.
+            Block::drop_block_impl(this.block);
+
+            Ok(elem)
+        }
     }
 }
 

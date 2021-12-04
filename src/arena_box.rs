@@ -2,6 +2,7 @@
 
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
+use std::mem;
 
 use crate::block::Block;
 
@@ -97,6 +98,42 @@ impl<T> ArenaBox<T> {
 
         ArenaBox { block }
     }
+
+    /// See ArenaBox<T>::new for why we touch the counter
+    fn dec_ref_cnt(block: &Block<T>) {
+        let counter_ref = &block.counter;
+
+        let counter = counter_ref.load(Relaxed);
+        assert!(counter == 1, "PoolBox: Counter != 1 on drop {}", counter);
+
+        counter_ref.store(0, Relaxed);
+    }
+
+    /// ```
+    /// # use shared_arena::{ArenaBox, SharedArena};
+    /// let arena = SharedArena::new();
+    /// let my_opt: ArenaBox<Option<i32>> = arena.alloc(Some(10));
+    /// assert!(my_opt.is_some());
+    ///
+    /// let val = ArenaBox::into_inner(my_opt);
+    ///
+    /// assert!(val.is_some());
+    /// ```
+    pub fn into_inner(boxed: Self) -> T {
+        let block = unsafe { boxed.block.as_ref() };
+
+        let elem = unsafe { block.value.get().read() };
+
+        // See ArenaBox<T>::new for why we touch the counter
+        Self::dec_ref_cnt(block);
+
+        // Release the block but DO NOT drop the elem.
+        Block::drop_block_impl(boxed.block);
+
+        mem::forget(boxed);
+
+        elem
+    }
 }
 
 impl<T> std::ops::Deref for ArenaBox<T> {
@@ -144,13 +181,7 @@ impl<T> Drop for ArenaBox<T> {
         let block = unsafe { self.block.as_ref() };
 
         // See ArenaBox<T>::new for why we touch the counter
-
-        let counter_ref = &block.counter;
-
-        let counter = counter_ref.load(Relaxed);
-        assert!(counter == 1, "PoolBox: Counter != 1 on drop {}", counter);
-
-        counter_ref.store(0, Relaxed);
+        Self::dec_ref_cnt(block);
 
         Block::drop_block(self.block)
     }

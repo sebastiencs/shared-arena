@@ -1,7 +1,6 @@
-
-
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
+use std::mem;
 
 use crate::block::Block;
 
@@ -114,6 +113,42 @@ impl<T> ArenaArc<T> {
         counter_ref.store(1, Relaxed);
 
         ArenaArc { block }
+    }
+
+    /// ```
+    /// # use shared_arena::{ArenaArc, Arena};
+    /// let arena = Arena::new();
+    /// let my_nums = arena.alloc_arc(vec![1, 2, 3, 4]);
+    ///
+    /// // try_unwrap would fail if you have two or more references
+    /// let my_nums2 = my_nums.clone();
+    /// let my_nums = match ArenaArc::try_unwrap(my_nums) {
+    ///     Ok(_) => panic!("try_unwrap should fail here"),
+    ///
+    ///     // The error variant returns back the orignal arc
+    ///     Err(arc) => arc,
+    /// };
+    ///
+    /// drop(my_nums2);
+    ///
+    /// // It would succeed if you only have one reference.
+    /// assert_eq!(ArenaArc::try_unwrap(my_nums).unwrap(), vec![1, 2, 3, 4]);
+    /// ```
+    pub fn try_unwrap(this: Self) -> Result<T, Self> {
+        let block = unsafe { this.block.as_ref() };
+
+        if block.counter.compare_exchange(1, 0, AcqRel, Relaxed).is_err() {
+            return Err(this);
+        }
+
+        let elem = unsafe { block.value.get().read() };
+
+        // Release the block but DO NOT drop the elem.
+        Block::drop_block_impl(this.block);
+
+        mem::forget(this);
+
+        Ok(elem)
     }
 }
 

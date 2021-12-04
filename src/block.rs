@@ -36,7 +36,7 @@ pub struct Block<T> {
 }
 
 impl<T> Block<T> {
-    pub(crate) fn drop_block(block: NonNull<Block<T>>) {
+    pub(crate) fn drop_block_impl(block: NonNull<Block<T>>) {
         let block_ref = unsafe { block.as_ref() };
 
         match block_ref.page.page_kind() {
@@ -53,6 +53,17 @@ impl<T> Block<T> {
                 PagePool::<T>::drop_block(page_ptr, block);
             }
         }
+    }
+
+    pub(crate) fn drop_block(block: NonNull<Block<T>>) {
+        let block_ref = unsafe { block.as_ref() };
+
+        unsafe {
+            // Drop the inner value
+            std::ptr::drop_in_place(block_ref.value.get());
+        }
+
+        Self::drop_block_impl(block);
     }
 }
 
@@ -172,9 +183,9 @@ impl From<PageTaggedPtr> for PageKind {
     }
 }
 
-impl Into<usize> for PageKind {
-    fn into(self) -> usize {
-        match self {
+impl From<PageKind> for usize {
+    fn from(kind: PageKind) -> Self {
+        match kind {
             PageKind::SharedArena => 0,
             PageKind::Arena => 1,
             PageKind::Pool => 2

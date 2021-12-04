@@ -231,7 +231,7 @@ impl<T: Sized> SharedArena<T> {
             let truncate_at = to_free.len().saturating_sub(npages);
             let to_reinsert = &to_free[truncate_at..];
 
-            let (first, last) = PageSharedArena::make_list_from_slice(&to_reinsert);
+            let (first, last) = PageSharedArena::make_list_from_slice(to_reinsert);
             self.put_pages_in_lists(to_reinsert.len(), first, last);
 
             if truncate_at != 0 {

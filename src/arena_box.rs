@@ -97,6 +97,24 @@ impl<T> ArenaBox<T> {
 
         ArenaBox { block }
     }
+
+    pub fn into_inner(boxed: Self) -> T {
+        let block = unsafe { boxed.block.as_ref() };
+
+        let elem = unsafe { block.value.get().read() };
+
+        let counter_ref = &block.counter;
+
+        let counter = counter_ref.load(Relaxed);
+        assert!(counter == 1, "PoolBox: Counter != 1 on drop {}", counter);
+
+        counter_ref.store(0, Relaxed);
+
+        // Release the block but DO NOT drop the elem.
+        Block::drop_block_impl(boxed.block);
+
+        elem
+    }
 }
 
 impl<T> std::ops::Deref for ArenaBox<T> {

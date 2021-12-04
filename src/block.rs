@@ -183,9 +183,9 @@ impl From<PageTaggedPtr> for PageKind {
     }
 }
 
-impl Into<usize> for PageKind {
-    fn into(self) -> usize {
-        match self {
+impl From<PageKind> for usize {
+    fn from(kind: PageKind) -> Self {
+        match kind {
             PageKind::SharedArena => 0,
             PageKind::Arena => 1,
             PageKind::Pool => 2

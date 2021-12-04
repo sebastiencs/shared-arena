@@ -98,17 +98,23 @@ impl<T> ArenaBox<T> {
         ArenaBox { block }
     }
 
-    pub fn into_inner(boxed: Self) -> T {
-        let block = unsafe { boxed.block.as_ref() };
-
-        let elem = unsafe { block.value.get().read() };
-
+    /// See ArenaBox<T>::new for why we touch the counter
+    fn dec_ref_cnt(block: &Block<T>) {
         let counter_ref = &block.counter;
 
         let counter = counter_ref.load(Relaxed);
         assert!(counter == 1, "PoolBox: Counter != 1 on drop {}", counter);
 
         counter_ref.store(0, Relaxed);
+    }
+
+    pub fn into_inner(boxed: Self) -> T {
+        let block = unsafe { boxed.block.as_ref() };
+
+        let elem = unsafe { block.value.get().read() };
+
+        // See ArenaBox<T>::new for why we touch the counter
+        Self::dec_ref_cnt(block);
 
         // Release the block but DO NOT drop the elem.
         Block::drop_block_impl(boxed.block);
@@ -162,13 +168,7 @@ impl<T> Drop for ArenaBox<T> {
         let block = unsafe { self.block.as_ref() };
 
         // See ArenaBox<T>::new for why we touch the counter
-
-        let counter_ref = &block.counter;
-
-        let counter = counter_ref.load(Relaxed);
-        assert!(counter == 1, "PoolBox: Counter != 1 on drop {}", counter);
-
-        counter_ref.store(0, Relaxed);
+        Self::dec_ref_cnt(block);
 
         Block::drop_block(self.block)
     }

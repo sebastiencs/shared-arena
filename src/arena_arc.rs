@@ -124,7 +124,7 @@ impl<T> ArenaArc<T> {
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
         let block = unsafe { this.block.as_ref() };
 
-        if block.counter.load(Acquire) > 1 {
+        if block.counter.compare_exchange(1, 0, AcqRel, Relaxed).is_err() {
             return Err(this);
         }
 

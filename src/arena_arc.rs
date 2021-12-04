@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
+use std::mem;
 
 use crate::block::Block;
 
@@ -144,6 +145,8 @@ impl<T> ArenaArc<T> {
 
         // Release the block but DO NOT drop the elem.
         Block::drop_block_impl(this.block);
+
+        mem::forget(this);
 
         Ok(elem)
     }

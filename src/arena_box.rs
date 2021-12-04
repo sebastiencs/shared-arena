@@ -2,6 +2,7 @@
 
 use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
+use std::mem;
 
 use crate::block::Block;
 
@@ -127,6 +128,8 @@ impl<T> ArenaBox<T> {
 
         // Release the block but DO NOT drop the elem.
         Block::drop_block_impl(boxed.block);
+
+        mem::forget(boxed);
 
         elem
     }

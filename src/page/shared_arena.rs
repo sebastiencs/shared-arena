@@ -159,11 +159,6 @@ impl<T> PageSharedArena<T> {
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
 
-        unsafe {
-            // Drop the inner value
-            std::ptr::drop_in_place(block.value.get());
-        }
-
         let bit = 1 << block.page.index_block();
 
         // We set our bit to mark the block as free.

@@ -39,6 +39,11 @@ impl<T> Block<T> {
     pub(crate) fn drop_block(block: NonNull<Block<T>>) {
         let block_ref = unsafe { block.as_ref() };
 
+        unsafe {
+            // Drop the inner value
+            std::ptr::drop_in_place(block_ref.value.get());
+        }
+
         match block_ref.page.page_kind() {
             PageKind::SharedArena => {
                 let page_ptr = block_ref.page.page_ptr::<PageSharedArena<T>>();

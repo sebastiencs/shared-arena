@@ -115,11 +115,6 @@ impl<T> PagePool<T> {
         let page = unsafe { page.as_mut() };
         let block = unsafe { block.as_ref() };
 
-        unsafe {
-            // Drop the inner value
-            std::ptr::drop_in_place(block.value.get());
-        }
-
         let index_in_page = block.page.index_block();
         page.bitfield |= 1 << index_in_page;
 

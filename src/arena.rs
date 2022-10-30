@@ -218,7 +218,7 @@ impl<T: Sized> Arena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_with<F>(&self, initializer: F) -> ArenaBox<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T,
+        F: FnOnce(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaBox::new(block);
@@ -312,7 +312,7 @@ impl<T: Sized> Arena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_arc_with<F>(&self, initializer: F) -> ArenaArc<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T,
+        F: FnOnce(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaArc::new(block);
@@ -406,7 +406,7 @@ impl<T: Sized> Arena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T,
+        F: FnOnce(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaRc::new(block);

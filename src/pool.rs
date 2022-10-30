@@ -157,7 +157,7 @@ impl<T: Sized> Pool<T> {
     fn alloc_new_page(&self) -> NonNull<PagePool<T>> {
         let len = self.npages.get();
 
-        let to_allocate = len.max(1).min(900_000);
+        let to_allocate = len.clamp(1, 900_000);
 
         let (first, mut last) = PagePool::make_list(to_allocate, &self.free);
 

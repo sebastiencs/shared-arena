@@ -43,7 +43,7 @@ unsafe impl<T: Sized> Send for Arena<T> {}
 
 impl<T: Sized> Arena<T> {
     fn alloc_new_page(&self) {
-        let to_allocate = self.npages.get().max(1).min(900_000);
+        let to_allocate = self.npages.get().clamp(1, 900_000);
 
         let (first, mut last) = PageArena::make_list(to_allocate, &self.pending_free_list);
 
@@ -1029,7 +1029,7 @@ mod tests {
 
             handles.push(thread::spawn(move || {
                 c.wait();
-                while values.len() > 0 {
+                while !values.is_empty() {
                     values.pop();
                     // println!("POP HERE", );
                 }
@@ -1039,7 +1039,7 @@ mod tests {
         let mut values = values_for_threads.pop().unwrap();
 
         barrier.wait();
-        while values.len() > 0 {
+        while !values.is_empty() {
             let rand = get_random_number(values.len());
 
             if with_shrink && rand % 200 == 0 {

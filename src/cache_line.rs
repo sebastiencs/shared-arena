@@ -76,6 +76,6 @@ mod tests {
     #[test]
     fn test_cached_aligned_clone() {
         let var = CacheAligned::new(10);
-        assert!(*var == 10 && *var.clone() == 10);
+        assert!(*var == 10 && *var == 10);
     }
 }

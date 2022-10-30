@@ -180,9 +180,9 @@ impl From<PageTaggedPtr> for PageKind {
     }
 }
 
-impl Into<usize> for PageKind {
-    fn into(self) -> usize {
-        match self {
+impl From<PageKind> for usize {
+    fn from(val: PageKind) -> Self {
+        match val {
             PageKind::SharedArena => 0,
             PageKind::Arena => 1,
             PageKind::Pool => 2,
@@ -260,7 +260,7 @@ mod tests {
         println!("{:?} {:?}", tagged_ptr.clone(), PageKind::Arena);
 
         let tagged_ptr_2 = tagged_ptr;
-        let tagged_ptr_3 = tagged_ptr_2.clone();
+        let tagged_ptr_3 = tagged_ptr_2;
 
         assert!(tagged_ptr.data == tagged_ptr_2.data);
         assert!(tagged_ptr.data == tagged_ptr_3.data);

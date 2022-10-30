@@ -111,7 +111,7 @@ impl<T: Sized> SharedArena<T> {
     }
 
     fn alloc_new_page(&self) {
-        let to_allocate = self.npages.load(Relaxed).max(1).min(900_000);
+        let to_allocate = self.npages.load(Relaxed).clamp(1, 900_000);
 
         let (first, last) = PageSharedArena::make_list(to_allocate, &self.pending_free_list);
         self.put_pages_in_lists(to_allocate, first, last);
@@ -228,7 +228,7 @@ impl<T: Sized> SharedArena<T> {
             let truncate_at = to_free.len().saturating_sub(npages);
             let to_reinsert = &to_free[truncate_at..];
 
-            let (first, last) = PageSharedArena::make_list_from_slice(&to_reinsert);
+            let (first, last) = PageSharedArena::make_list_from_slice(to_reinsert);
             self.put_pages_in_lists(to_reinsert.len(), first, last);
 
             if truncate_at != 0 {
@@ -1281,10 +1281,8 @@ mod tests {
                     if (i + 1) % 5 == 0 {
                         values.remove(rand);
                     }
-                    if with_shrink && rand % 200 == 0 {
-                        if arena.shrink_to_fit() {
-                            // nshrink += 1;
-                        }
+                    if with_shrink && rand % 200 == 0 && arena.shrink_to_fit() {
+                        // nshrink += 1;
                     }
                 }
 

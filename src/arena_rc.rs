@@ -184,7 +184,7 @@ mod tests {
         let rc = pool.alloc_rc(10);
 
         assert_eq!(*rc, 10);
-        let rc2 = rc.clone();
+        let rc2 = rc;
 
         assert_eq!(*rc2, 10);
     }

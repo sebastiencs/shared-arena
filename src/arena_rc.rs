@@ -1,4 +1,3 @@
-
 use std::ptr::NonNull;
 
 use crate::block::Block;
@@ -98,7 +97,11 @@ impl<T> ArenaRc<T> {
         // The bitfield indicated the block as free so it's guarantee to be zero,
         // but we check, just in case something went wrong
 
-        assert!(*counter_mut == 0, "ArenaRc: Counter not zero {}", counter_mut);
+        assert!(
+            *counter_mut == 0,
+            "ArenaRc: Counter not zero {}",
+            counter_mut
+        );
         *counter_mut = 1;
 
         ArenaRc { block }
@@ -124,9 +127,7 @@ impl<T> Clone for ArenaRc<T> {
         assert!(*counter_mut < isize::max_value() as usize);
         *counter_mut += 1;
 
-        ArenaRc {
-            block: self.block
-        }
+        ArenaRc { block: self.block }
     }
 }
 
@@ -183,7 +184,7 @@ mod tests {
         let rc = pool.alloc_rc(10);
 
         assert_eq!(*rc, 10);
-        let rc2 = rc.clone();
+        let rc2 = rc;
 
         assert_eq!(*rc2, 10);
     }

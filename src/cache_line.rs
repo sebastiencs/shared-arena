@@ -1,4 +1,3 @@
-
 #[cfg_attr(
     any(
         target_arch = "mips",
@@ -20,10 +19,7 @@
     repr(align(64))
 )]
 #[cfg_attr(
-    any(
-        target_arch = "x86_64",
-        target_arch = "powerpc64",
-    ),
+    any(target_arch = "x86_64", target_arch = "powerpc64",),
     repr(align(128))
 )]
 #[cfg_attr(any(target_arch = "s390x"), repr(align(256)))]
@@ -80,6 +76,6 @@ mod tests {
     #[test]
     fn test_cached_aligned_clone() {
         let var = CacheAligned::new(10);
-        assert!(*var == 10 && *var.clone() == 10);
+        assert!(*var == 10 && *var == 10);
     }
 }

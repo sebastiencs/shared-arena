@@ -1,7 +1,5 @@
-
-
-use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
+use std::sync::atomic::Ordering::*;
 
 use crate::block::Block;
 

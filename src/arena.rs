@@ -1,15 +1,14 @@
-
+use std::cell::Cell;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
-use std::sync::atomic::Ordering::*;
 use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::Ordering::*;
 use std::sync::Arc;
-use std::cell::Cell;
 
 use crate::block::Block;
-use crate::page::arena::{PageArena, drop_page};
 use crate::common::{Pointer, BLOCK_PER_PAGE};
-use crate::{ArenaRc, ArenaBox, ArenaArc};
+use crate::page::arena::{drop_page, PageArena};
+use crate::{ArenaArc, ArenaBox, ArenaRc};
 
 /// An arena
 ///
@@ -44,10 +43,7 @@ unsafe impl<T: Sized> Send for Arena<T> {}
 
 impl<T: Sized> Arena<T> {
     fn alloc_new_page(&self) {
-        let to_allocate = self.npages
-                              .get()
-                              .max(1)
-                              .min(900_000);
+        let to_allocate = self.npages.get().max(1).min(900_000);
 
         let (first, mut last) = PageArena::make_list(to_allocate, &self.pending_free_list);
 
@@ -76,7 +72,6 @@ impl<T: Sized> Arena<T> {
     fn find_place(&self) -> NonNull<Block<T>> {
         loop {
             while let Some(page) = unsafe { self.free_list.get().as_mut() } {
-
                 if let Some(block) = page.acquire_free_block() {
                     return block;
                 }
@@ -223,7 +218,7 @@ impl<T: Sized> Arena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_with<F>(&self, initializer: F) -> ArenaBox<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T
+        F: Fn(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaBox::new(block);
@@ -232,8 +227,7 @@ impl<T: Sized> Arena<T> {
             let ptr = block.as_ref().value.get();
             let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
             assert_eq!(
-                ptr as * const T,
-                reference as * const T,
+                ptr as *const T, reference as *const T,
                 "`initializer` must return a reference of its parameter"
             );
         }
@@ -318,7 +312,7 @@ impl<T: Sized> Arena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_arc_with<F>(&self, initializer: F) -> ArenaArc<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T
+        F: Fn(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaArc::new(block);
@@ -327,8 +321,7 @@ impl<T: Sized> Arena<T> {
             let ptr = block.as_ref().value.get();
             let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
             assert_eq!(
-                ptr as * const T,
-                reference as * const T,
+                ptr as *const T, reference as *const T,
                 "`initializer` must return a reference of its parameter"
             );
         }
@@ -413,7 +406,7 @@ impl<T: Sized> Arena<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T
+        F: Fn(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaRc::new(block);
@@ -422,8 +415,7 @@ impl<T: Sized> Arena<T> {
             let ptr = block.as_ref().value.get();
             let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
             assert_eq!(
-                ptr as * const T,
-                reference as * const T,
+                ptr as *const T, reference as *const T,
                 "`initializer` must return a reference of its parameter"
             );
         }
@@ -477,9 +469,15 @@ impl<T: Sized> Arena<T> {
             let next_value = next.load(Relaxed);
 
             if current_value.bitfield.get() | current_value.bitfield_atomic.load(Acquire) == !0 {
-                if current.compare_exchange(
-                    current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
-                ).is_ok() {
+                if current
+                    .compare_exchange(
+                        current_value as *const _ as *mut _,
+                        next_value,
+                        AcqRel,
+                        Relaxed,
+                    )
+                    .is_ok()
+                {
                     to_drop.push(current_value as *const _ as *mut PageArena<T>);
                 }
             } else {
@@ -499,9 +497,14 @@ impl<T: Sized> Arena<T> {
             let next_value = next.load(Relaxed);
 
             if to_drop.contains(&(current_value as *const _ as *mut PageArena<T>)) {
-                current.compare_exchange(
-                    current_value as *const _ as *mut _, next_value, AcqRel, Relaxed
-                ).expect("Something went wrong in shrinking.");
+                current
+                    .compare_exchange(
+                        current_value as *const _ as *mut _,
+                        next_value,
+                        AcqRel,
+                        Relaxed,
+                    )
+                    .expect("Something went wrong in shrinking.");
             } else {
                 current = next;
             }
@@ -567,7 +570,7 @@ impl<T: Sized> Arena<T> {
         (used, free)
     }
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[cfg(test)]
     pub(crate) fn size_lists(&self) -> (usize, usize, usize) {
         let mut next = self.full_list.load(Relaxed);
@@ -656,10 +659,11 @@ impl<T> std::fmt::Debug for Arena<T> {
         let mut next = self.full_list.load(Relaxed);
 
         while let Some(next_ref) = unsafe { next.as_mut() } {
-            let used = (next_ref.bitfield.get() | next_ref.bitfield_atomic.load(Relaxed)).count_zeros() as usize;
+            let used = (next_ref.bitfield.get() | next_ref.bitfield_atomic.load(Relaxed))
+                .count_zeros() as usize;
             vec.push(Page {
                 used,
-                free: BLOCK_PER_PAGE - used
+                free: BLOCK_PER_PAGE - used,
             });
 
             next = next_ref.next.load(Relaxed);
@@ -669,11 +673,11 @@ impl<T> std::fmt::Debug for Arena<T> {
         let blocks_free: usize = vec.iter().map(|p| p.free).sum();
 
         f.debug_struct("Arena")
-         .field("blocks_free", &blocks_free)
-         .field("blocks_used", &blocks_used)
-         .field("npages", &npages)
-         .field("pages", &vec)
-         .finish()
+            .field("blocks_free", &blocks_free)
+            .field("blocks_used", &blocks_used)
+            .field("npages", &npages)
+            .field("pages", &vec)
+            .finish()
     }
 }
 
@@ -733,7 +737,7 @@ mod tests {
     use std::mem::MaybeUninit;
     use std::ptr;
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn arena_shrink() {
         let arena = Arena::<usize>::with_capacity(1000);
@@ -742,7 +746,7 @@ mod tests {
         assert_eq!(arena.stats(), (0, 0));
     }
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn arena_shrink2() {
         let arena = Arena::<usize>::with_capacity(1000);
@@ -781,7 +785,7 @@ mod tests {
         assert_eq!(arena.stats(), (2, 61));
     }
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn arena_size() {
         let arena = Arena::<usize>::with_capacity(1000);
@@ -820,13 +824,13 @@ mod tests {
 
         arena.shrink_to_fit();
 
-        println!("LA", );
+        println!("LA",);
         assert_eq!(arena.size_lists(), (8, 0, 8));
-        println!("LA2", );
+        println!("LA2",);
 
         {
             let _a = arena.alloc(1);
-            println!("LA3", );
+            println!("LA3",);
             assert_eq!(arena.size_lists(), (8, 8, 0));
 
             println!("{:?}", arena);
@@ -853,7 +857,7 @@ mod tests {
     #[test]
     fn alloc_with_initializer() {
         struct MyData {
-            a: usize
+            a: usize,
         }
 
         fn initialize_data<'d>(uninit: &'d mut MaybeUninit<MyData>, source: &MyData) -> &'d MyData {
@@ -867,21 +871,15 @@ mod tests {
         let arena = Arena::<MyData>::new();
 
         let source = MyData { a: 101 };
-        let data = arena.alloc_with(|uninit| {
-            initialize_data(uninit, &source)
-        });
+        let data = arena.alloc_with(|uninit| initialize_data(uninit, &source));
         assert!(data.a == 101);
 
         let source = MyData { a: 102 };
-        let data = arena.alloc_rc_with(|uninit| {
-            initialize_data(uninit, &source)
-        });
+        let data = arena.alloc_rc_with(|uninit| initialize_data(uninit, &source));
         assert!(data.a == 102);
 
         let source = MyData { a: 103 };
-        let data = arena.alloc_arc_with(|uninit| {
-            initialize_data(uninit, &source)
-        });
+        let data = arena.alloc_arc_with(|uninit| initialize_data(uninit, &source));
         assert!(data.a == 103);
     }
 
@@ -891,9 +889,7 @@ mod tests {
         let arena = Arena::<usize>::new();
         const SOURCE: usize = 10;
 
-        let _ = arena.alloc_with(|_| {
-            &SOURCE
-        });
+        let _ = arena.alloc_with(|_| &SOURCE);
     } // grcov_ignore
 
     #[test]
@@ -902,9 +898,7 @@ mod tests {
         let arena = Arena::<usize>::new();
         const SOURCE: usize = 10;
 
-        let _ = arena.alloc_rc_with(|_| {
-            &SOURCE
-        });
+        let _ = arena.alloc_rc_with(|_| &SOURCE);
     } // grcov_ignore
 
     #[test]
@@ -913,9 +907,7 @@ mod tests {
         let arena = Arena::<usize>::new();
         const SOURCE: usize = 10;
 
-        let _ = arena.alloc_arc_with(|_| {
-            &SOURCE
-        });
+        let _ = arena.alloc_arc_with(|_| &SOURCE);
     } // grcov_ignore
 
     #[test]
@@ -1000,7 +992,7 @@ mod tests {
 
     // #[test]
     fn test_with_threads(nthreads: usize, nallocs: usize, with_shrink: bool) {
-    // fn test_with_threads() {
+        // fn test_with_threads() {
         use std::sync::{Arc, Barrier};
         use std::thread;
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -1035,7 +1027,7 @@ mod tests {
             let c = barrier.clone();
             let mut values = values_for_threads.pop().unwrap();
 
-            handles.push(thread::spawn(move|| {
+            handles.push(thread::spawn(move || {
                 c.wait();
                 while values.len() > 0 {
                     values.pop();
@@ -1048,7 +1040,6 @@ mod tests {
 
         barrier.wait();
         while values.len() > 0 {
-
             let rand = get_random_number(values.len());
 
             if with_shrink && rand % 200 == 0 {

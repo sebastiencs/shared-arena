@@ -1,14 +1,12 @@
-
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*};
 use std::sync::{Arc, Weak};
 
-use std::ptr::NonNull;
 use std::alloc::{alloc, dealloc, Layout};
+use std::ptr::NonNull;
 
+use crate::block::{Block, PageKind, PageTaggedPtr};
 use crate::cache_line::CacheAligned;
-use crate::common::{BLOCK_PER_PAGE, Bitfield, MASK_ARENA_BIT};
-use crate::block::{Block, PageTaggedPtr, PageKind};
-
+use crate::common::{Bitfield, BLOCK_PER_PAGE, MASK_ARENA_BIT};
 
 pub struct PageSharedArena<T> {
     /// Bitfield representing free and non-free blocks.
@@ -35,9 +33,9 @@ pub struct PageSharedArena<T> {
 impl<T> std::fmt::Debug for PageSharedArena<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PageSharedArena")
-         .field("next_free", &self.next_free.load(Relaxed))
-         .field("next", &self.next.load(Relaxed))
-         .finish()
+            .field("next_free", &self.next_free.load(Relaxed))
+            .field("next", &self.next.load(Relaxed))
+            .finish()
     }
 }
 
@@ -60,9 +58,8 @@ impl<T> PageSharedArena<T> {
 
     fn new(
         arena_pending_list: Weak<AtomicPtr<PageSharedArena<T>>>,
-        next: *mut PageSharedArena<T>
-    ) -> NonNull<PageSharedArena<T>>
-    {
+        next: *mut PageSharedArena<T>,
+    ) -> NonNull<PageSharedArena<T>> {
         let mut page_ptr = Self::allocate();
         let page_copy = page_ptr;
 
@@ -84,7 +81,8 @@ impl<T> PageSharedArena<T> {
 
         // initialize the blocks
         for (index, block) in page.blocks.iter_mut().enumerate() {
-            block.page = PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::SharedArena);
+            block.page =
+                PageTaggedPtr::new(page_copy.as_ptr() as usize, index, PageKind::SharedArena);
             block.counter = AtomicUsize::new(0);
         }
 
@@ -96,9 +94,8 @@ impl<T> PageSharedArena<T> {
     /// Returns the first and last PageSharedArena in the list
     pub fn make_list(
         npages: usize,
-        arena_pending_list: &Arc<AtomicPtr<PageSharedArena<T>>>
-    ) -> (NonNull<PageSharedArena<T>>, NonNull<PageSharedArena<T>>)
-    {
+        arena_pending_list: &Arc<AtomicPtr<PageSharedArena<T>>>,
+    ) -> (NonNull<PageSharedArena<T>>, NonNull<PageSharedArena<T>>) {
         let arena_pending_list = Arc::downgrade(arena_pending_list);
 
         let last = PageSharedArena::<T>::new(arena_pending_list.clone(), std::ptr::null_mut());
@@ -113,12 +110,17 @@ impl<T> PageSharedArena<T> {
     }
 
     pub(crate) fn make_list_from_slice(
-        pages: &[NonNull<PageSharedArena<T>>]
+        pages: &[NonNull<PageSharedArena<T>>],
     ) -> (NonNull<PageSharedArena<T>>, NonNull<PageSharedArena<T>>) {
-        for (index, page) in pages.iter().map(|p| unsafe { &mut *p.as_ptr() }).enumerate() {
-            let next = pages.get(index + 1)
-                            .map(|p| p.as_ptr())
-                            .unwrap_or_else(std::ptr::null_mut);
+        for (index, page) in pages
+            .iter()
+            .map(|p| unsafe { &mut *p.as_ptr() })
+            .enumerate()
+        {
+            let next = pages
+                .get(index + 1)
+                .map(|p| p.as_ptr())
+                .unwrap_or_else(std::ptr::null_mut);
             page.next_free = AtomicPtr::new(next);
             page.next = AtomicPtr::new(next);
             page.in_free_list = AtomicBool::new(true);
@@ -194,9 +196,10 @@ impl<T> PageSharedArena<T> {
                         let current = arena_pending_list.load(Relaxed);
                         page.next_free.store(current, Relaxed);
 
-                        if arena_pending_list.compare_exchange(
-                            current, page_ptr, AcqRel, Relaxed
-                        ).is_ok() {
+                        if arena_pending_list
+                            .compare_exchange(current, page_ptr, AcqRel, Relaxed)
+                            .is_ok()
+                        {
                             break;
                         }
                     }

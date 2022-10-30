@@ -67,20 +67,20 @@
 //! [`Arena`]: ./struct.Arena.html
 //! [`Pool`]: ./struct.Pool.html
 
-mod shared_arena;
 mod arena;
 mod arena_arc;
-mod arena_rc;
 mod arena_box;
-mod pool;
+mod arena_rc;
+mod block;
 mod cache_line;
 mod common;
-mod block;
 mod page;
+mod pool;
+mod shared_arena;
 
 pub use {
-    arena::Arena,
     self::shared_arena::SharedArena,
+    arena::Arena,
     arena_arc::ArenaArc,
     arena_box::ArenaBox,
     arena_rc::ArenaRc,

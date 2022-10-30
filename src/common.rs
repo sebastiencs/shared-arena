@@ -1,6 +1,6 @@
-use std::sync::atomic::AtomicUsize;
-use std::cell::Cell;
 use static_assertions::const_assert;
+use std::cell::Cell;
+use std::sync::atomic::AtomicUsize;
 
 pub(crate) const BITFIELD_WIDTH: usize = std::mem::size_of::<AtomicUsize>() * 8;
 pub(crate) const BLOCK_PER_PAGE: usize = BITFIELD_WIDTH - 1;

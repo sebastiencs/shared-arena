@@ -1,4 +1,3 @@
-
 #[cfg_attr(
     any(
         target_arch = "mips",
@@ -20,10 +19,7 @@
     repr(align(64))
 )]
 #[cfg_attr(
-    any(
-        target_arch = "x86_64",
-        target_arch = "powerpc64",
-    ),
+    any(target_arch = "x86_64", target_arch = "powerpc64",),
     repr(align(128))
 )]
 #[cfg_attr(any(target_arch = "s390x"), repr(align(256)))]

@@ -1,17 +1,15 @@
-
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*};
-use std::sync::{Arc, Weak};
+use std::alloc::{alloc, dealloc, Layout};
 use std::cell::Cell;
 use std::ptr::NonNull;
-use std::alloc::{alloc, dealloc, Layout};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering::*};
+use std::sync::{Arc, Weak};
 
+use crate::block::{Block, PageKind, PageTaggedPtr};
 use crate::cache_line::CacheAligned;
-use crate::block::{Block, PageTaggedPtr, PageKind};
 use crate::common::BLOCK_PER_PAGE;
 
 pub type Bitfield = usize;
 pub type BitfieldAtomic = AtomicUsize;
-
 
 pub struct PageArena<T> {
     /// Bitfield representing free and non-free blocks.
@@ -39,9 +37,9 @@ pub struct PageArena<T> {
 impl<T> std::fmt::Debug for PageArena<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PageArena")
-         .field("next_free", &self.next_free.load(Relaxed))
-         .field("next", &self.next.load(Relaxed))
-         .finish()
+            .field("next_free", &self.next_free.load(Relaxed))
+            .field("next", &self.next.load(Relaxed))
+            .finish()
     }
 }
 
@@ -64,9 +62,8 @@ impl<T> PageArena<T> {
 
     fn new(
         arena_pending_list: Weak<AtomicPtr<PageArena<T>>>,
-        next: *mut PageArena<T>
-    ) -> NonNull<PageArena<T>>
-    {
+        next: *mut PageArena<T>,
+    ) -> NonNull<PageArena<T>> {
         let mut page_ptr = Self::allocate();
         let page_copy = page_ptr;
 
@@ -102,9 +99,8 @@ impl<T> PageArena<T> {
     /// Returns the first and last PageArena in the list
     pub fn make_list(
         npages: usize,
-        arena_pending_list: &Arc<AtomicPtr<PageArena<T>>>
-    ) -> (NonNull<PageArena<T>>, NonNull<PageArena<T>>)
-    {
+        arena_pending_list: &Arc<AtomicPtr<PageArena<T>>>,
+    ) -> (NonNull<PageArena<T>>, NonNull<PageArena<T>>) {
         let arena_pending_list = Arc::downgrade(arena_pending_list);
 
         let last = PageArena::<T>::new(arena_pending_list.clone(), std::ptr::null_mut());
@@ -126,9 +122,9 @@ impl<T> PageArena<T> {
             let index_free = self.bitfield.get().trailing_zeros() as usize;
 
             if index_free == BLOCK_PER_PAGE {
-
                 if self.bitfield_atomic.load(Relaxed) != 0 {
-                    self.bitfield.set(self.bitfield.get() | self.bitfield_atomic.swap(0, AcqRel));
+                    self.bitfield
+                        .set(self.bitfield.get() | self.bitfield_atomic.swap(0, AcqRel));
                     continue;
                 }
 
@@ -139,7 +135,7 @@ impl<T> PageArena<T> {
             self.bitfield.set(self.bitfield.get() & !(1 << index_free));
             // println!("AFTER  {:064b}", self.bitfield.get());
 
-            return Some(NonNull::from(&self.blocks[index_free]))
+            return Some(NonNull::from(&self.blocks[index_free]));
         }
     }
 
@@ -183,9 +179,10 @@ impl<T> PageArena<T> {
                         let current = arena_pending_list.load(Relaxed);
                         page.next_free.store(current, Relaxed);
 
-                        if arena_pending_list.compare_exchange(
-                            current, page_ptr, AcqRel, Relaxed
-                        ).is_ok() {
+                        if arena_pending_list
+                            .compare_exchange(current, page_ptr, AcqRel, Relaxed)
+                            .is_ok()
+                        {
                             break;
                         }
                     }

@@ -1,7 +1,5 @@
-
-
-use std::sync::atomic::Ordering::*;
 use std::ptr::NonNull;
+use std::sync::atomic::Ordering::*;
 
 use crate::block::Block;
 
@@ -136,9 +134,7 @@ impl<T> Clone for ArenaArc<T> {
 
         assert!(old < isize::max_value() as usize);
 
-        ArenaArc {
-            block: self.block
-        }
+        ArenaArc { block: self.block }
     }
 }
 

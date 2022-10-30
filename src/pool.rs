@@ -1,12 +1,12 @@
 use std::cell::Cell;
-use std::ptr::NonNull;
 use std::marker::PhantomData;
-use std::rc::Rc;
 use std::mem::MaybeUninit;
+use std::ptr::NonNull;
+use std::rc::Rc;
 
 use crate::block::Block;
-use crate::common::{BLOCK_PER_PAGE, Pointer};
-use crate::page::pool::{PagePool, drop_page};
+use crate::common::{Pointer, BLOCK_PER_PAGE};
+use crate::page::pool::{drop_page, PagePool};
 use crate::ArenaRc;
 
 /// A pointer to `T` in `Pool`
@@ -33,7 +33,7 @@ use crate::ArenaRc;
 ///
 pub struct PoolBox<T> {
     block: NonNull<Block<T>>,
-    _marker: PhantomData<*mut ()>
+    _marker: PhantomData<*mut ()>,
 }
 
 impl<T> PoolBox<T> {
@@ -43,9 +43,16 @@ impl<T> PoolBox<T> {
 
         // let counter = &mut unsafe { block.as_mut() }.counter;
         // See ArenaBox<T>::new for why we touch the counter
-        assert!(*counter_mut == 0, "PoolBox: Counter not zero {}", counter_mut);
+        assert!(
+            *counter_mut == 0,
+            "PoolBox: Counter not zero {}",
+            counter_mut
+        );
         *counter_mut = 1;
-        PoolBox { block, _marker: PhantomData }
+        PoolBox {
+            block,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -72,7 +79,11 @@ impl<T> Drop for PoolBox<T> {
         // let block = unsafe { self.block.as_mut() };
 
         // See ArenaBox<T>::new for why we touch the counter
-        assert!(*counter_mut == 1, "PoolBox: Counter != 1 on drop {}", counter_mut);
+        assert!(
+            *counter_mut == 1,
+            "PoolBox: Counter != 1 on drop {}",
+            counter_mut
+        );
         *counter_mut = 0;
 
         Block::drop_block(self.block)
@@ -91,7 +102,7 @@ pub struct Pool<T: Sized> {
     free: Rc<Pointer<PagePool<T>>>,
     page_list: Pointer<PagePool<T>>,
     npages: Cell<usize>,
-    _marker: PhantomData<*mut ()>
+    _marker: PhantomData<*mut ()>,
 }
 
 impl<T: Sized> Pool<T> {
@@ -139,7 +150,7 @@ impl<T: Sized> Pool<T> {
             npages: Cell::new(npages),
             free,
             page_list: Cell::new(first_ref),
-            _marker: PhantomData
+            _marker: PhantomData,
         }
     }
 
@@ -256,7 +267,7 @@ impl<T: Sized> Pool<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_with<F>(&self, initializer: F) -> PoolBox<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T
+        F: Fn(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = PoolBox::new(block);
@@ -265,8 +276,7 @@ impl<T: Sized> Pool<T> {
             let ptr = block.as_ref().value.get();
             let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
             assert_eq!(
-                ptr as * const T,
-                reference as * const T,
+                ptr as *const T, reference as *const T,
                 "`initializer` must return a reference of its parameter"
             );
         }
@@ -351,7 +361,7 @@ impl<T: Sized> Pool<T> {
     /// [`MaybeUninit`]: https://doc.rust-lang.org/std/mem/union.MaybeUninit.html
     pub fn alloc_rc_with<F>(&self, initializer: F) -> ArenaRc<T>
     where
-        F: Fn(&mut MaybeUninit<T>) -> &T
+        F: Fn(&mut MaybeUninit<T>) -> &T,
     {
         let block = self.find_place();
         let result = ArenaRc::new(block);
@@ -360,8 +370,7 @@ impl<T: Sized> Pool<T> {
             let ptr = block.as_ref().value.get();
             let reference = initializer(&mut *(ptr as *mut std::mem::MaybeUninit<T>));
             assert_eq!(
-                ptr as * const T,
-                reference as * const T,
+                ptr as *const T, reference as *const T,
                 "`initializer` must return a reference of its parameter"
             );
         }
@@ -406,7 +415,7 @@ impl<T: Sized> Pool<T> {
         (used, free)
     }
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[cfg(test)]
     pub(crate) fn size_lists(&self) -> (usize, usize) {
         let mut next = self.page_list.get();
@@ -458,7 +467,6 @@ impl<T: Sized> Pool<T> {
     ///
     /// ```
     pub fn shrink_to_fit(&mut self) {
-
         let mut current: &Pointer<PagePool<T>> = &self.free;
 
         let mut to_drop = vec![];
@@ -562,7 +570,7 @@ impl<T> std::fmt::Debug for Pool<T> {
             let used = next_ref.bitfield.count_zeros() as usize;
             vec.push(Page {
                 used,
-                free: BLOCK_PER_PAGE - used
+                free: BLOCK_PER_PAGE - used,
             });
 
             next = next_ref.next.get();
@@ -572,11 +580,11 @@ impl<T> std::fmt::Debug for Pool<T> {
         let blocks_free: usize = vec.iter().map(|p| p.free).sum();
 
         f.debug_struct("Pool")
-         .field("blocks_free", &blocks_free)
-         .field("blocks_used", &blocks_used)
-         .field("npages", &npages)
-         .field("pages", &vec)
-         .finish()
+            .field("blocks_free", &blocks_free)
+            .field("blocks_used", &blocks_used)
+            .field("npages", &npages)
+            .field("pages", &vec)
+            .finish()
     }
 }
 
@@ -615,7 +623,7 @@ mod tests {
     use std::mem::MaybeUninit;
     use std::ptr;
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn arena_shrink() {
         let mut arena = Pool::<usize>::with_capacity(1000);
@@ -624,7 +632,7 @@ mod tests {
         assert_eq!(arena.stats(), (0, 0));
     }
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn arena_shrink2() {
         let mut arena = Pool::<usize>::with_capacity(1000);
@@ -663,7 +671,7 @@ mod tests {
         assert_eq!(arena.stats(), (2, 61));
     }
 
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn arena_size() {
         let mut arena = Pool::<usize>::with_capacity(1000);
@@ -708,7 +716,7 @@ mod tests {
 
         {
             let _a = arena.alloc(1);
-            println!("LA3", );
+            println!("LA3",);
             assert_eq!(arena.size_lists(), (1, 1));
 
             println!("{:?}", arena);
@@ -735,7 +743,7 @@ mod tests {
     #[test]
     fn alloc_with_initializer() {
         struct MyData {
-            a: usize
+            a: usize,
         }
 
         fn initialize_data<'d>(uninit: &'d mut MaybeUninit<MyData>, source: &MyData) -> &'d MyData {
@@ -749,15 +757,11 @@ mod tests {
         let arena = Pool::<MyData>::new();
 
         let source = MyData { a: 101 };
-        let data = arena.alloc_with(|uninit| {
-            initialize_data(uninit, &source)
-        });
+        let data = arena.alloc_with(|uninit| initialize_data(uninit, &source));
         assert!(data.a == 101);
 
         let source = MyData { a: 102 };
-        let data = arena.alloc_rc_with(|uninit| {
-            initialize_data(uninit, &source)
-        });
+        let data = arena.alloc_rc_with(|uninit| initialize_data(uninit, &source));
         assert!(data.a == 102);
     }
 
@@ -767,9 +771,7 @@ mod tests {
         let arena = Pool::<usize>::new();
         const SOURCE: usize = 10;
 
-        let _ = arena.alloc_with(|_| {
-            &SOURCE
-        });
+        let _ = arena.alloc_with(|_| &SOURCE);
     } // grcov_ignore
 
     #[test]
@@ -778,9 +780,7 @@ mod tests {
         let arena = Pool::<usize>::new();
         const SOURCE: usize = 10;
 
-        let _ = arena.alloc_rc_with(|_| {
-            &SOURCE
-        });
+        let _ = arena.alloc_rc_with(|_| &SOURCE);
     } // grcov_ignore
 
     #[test]
@@ -834,7 +834,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    #[cfg(target_pointer_width = "64") ]
+    #[cfg(target_pointer_width = "64")]
     fn invalid_block() {
         use std::cell::UnsafeCell;
         use std::ptr::NonNull;
@@ -843,9 +843,7 @@ mod tests {
         let mut block = super::Block {
             value: UnsafeCell::new(1),
             counter: AtomicUsize::new(1),
-            page: crate::block::PageTaggedPtr {
-                data: !0,
-            },
+            page: crate::block::PageTaggedPtr { data: !0 },
         };
 
         super::Block::drop_block(NonNull::from(&mut block));

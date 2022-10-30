@@ -100,7 +100,7 @@ extern crate test;
 //     });
 // }
 
-use shared_arena::{SharedArena, Arena, Pool};
+use shared_arena::{Arena, Pool, SharedArena};
 //use rustorrent::memory_pool::{Arena, SharedArena, ArenaBox, Pool};
 
 #[allow(dead_code)]
@@ -142,7 +142,7 @@ impl Default for MyStruct {
 //     arena.stats();
 // }
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     // let mut arena = Arena::<MyStruct>::with_capacity(100000000);
@@ -200,7 +200,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     //     b.iter_with_large_drop(|| new_arena.alloc(black_box(MyStruct::default())))
     // });
 
-
     // return;
 
     let mut group = c.benchmark_group("SingleAlloc");
@@ -231,31 +230,34 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("Benchmark");
     for i in (1..=100_001).step_by(10000) {
-
         let i = (i - 1).max(1);
 
         // let mut vec = Vec::with_capacity(10_000_000);
 
-        group.bench_with_input(BenchmarkId::new("Box (System Allocator)", i), &i, move |b, n| {
-            let n = *n;
+        group.bench_with_input(
+            BenchmarkId::new("Box (System Allocator)", i),
+            &i,
+            move |b, n| {
+                let n = *n;
 
-            b.iter_custom(move |iters| {
-                let mut duration = Duration::new(0, 0);
+                b.iter_custom(move |iters| {
+                    let mut duration = Duration::new(0, 0);
 
-                for _ in 0..iters {
-                    let mut vec = Vec::with_capacity(n);
+                    for _ in 0..iters {
+                        let mut vec = Vec::with_capacity(n);
 
-                    let start = Instant::now();
-                    for _ in 0..n {
-                        let res = Box::new(black_box(MyStruct::default()));
-                        vec.push(black_box(res));
+                        let start = Instant::now();
+                        for _ in 0..n {
+                            let res = Box::new(black_box(MyStruct::default()));
+                            vec.push(black_box(res));
+                        }
+                        duration += start.elapsed()
                     }
-                    duration += start.elapsed()
-                }
 
-                duration
-            });
-        });
+                    duration
+                });
+            },
+        );
 
         group.bench_with_input(BenchmarkId::new("Arena", i), &i, move |b, n| {
             let n = *n;
@@ -282,7 +284,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             });
         });
 
-        use std::time::{Instant, Duration};
+        use std::time::{Duration, Instant};
 
         group.bench_with_input(BenchmarkId::new("Pool", i), &i, move |b, n| {
             let n = *n;
@@ -332,10 +334,9 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         //     |b, i| b.iter(|| fibonacci_fast(*i)));
     }
     group.finish();
-
 }
 
-criterion_group!{
+criterion_group! {
     name = benches;
     config = Criterion::default()
         .with_plots()
@@ -477,7 +478,6 @@ criterion_main!(benches);
 //         var % mask
 //     });
 // }
-
 
 // #[bench]
 // fn mem_access(b: &mut Bencher) {

@@ -1,11 +1,11 @@
+use std::alloc::{alloc, dealloc, Layout};
 use std::cell::Cell;
 use std::ptr::NonNull;
-use std::alloc::{alloc, dealloc, Layout};
 use std::rc::{Rc, Weak};
 use std::sync::atomic::AtomicUsize;
 
-use crate::block::{PageTaggedPtr, PageKind, Block};
-use crate::common::{BLOCK_PER_PAGE, MASK_ARENA_BIT, Pointer};
+use crate::block::{Block, PageKind, PageTaggedPtr};
+use crate::common::{Pointer, BLOCK_PER_PAGE, MASK_ARENA_BIT};
 
 pub struct PagePool<T> {
     pub(crate) bitfield: usize,
@@ -35,9 +35,8 @@ impl<T> PagePool<T> {
 
     fn new(
         arena_free_list: Weak<Pointer<PagePool<T>>>,
-        next: *mut PagePool<T>
-    ) -> NonNull<PagePool<T>>
-    {
+        next: *mut PagePool<T>,
+    ) -> NonNull<PagePool<T>> {
         let mut page_ptr = Self::allocate();
         let page_copy = page_ptr;
 
@@ -77,9 +76,8 @@ impl<T> PagePool<T> {
     /// Returns the first and last Page in the list
     pub fn make_list(
         npages: usize,
-        arena_free_list: &Rc<Pointer<PagePool<T>>>
-    ) -> (NonNull<PagePool<T>>, NonNull<PagePool<T>>)
-    {
+        arena_free_list: &Rc<Pointer<PagePool<T>>>,
+    ) -> (NonNull<PagePool<T>>, NonNull<PagePool<T>>) {
         let arena_free_list = Rc::downgrade(arena_free_list);
 
         let last = PagePool::<T>::new(arena_free_list.clone(), std::ptr::null_mut());

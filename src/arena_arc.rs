@@ -115,6 +115,10 @@ impl<T> ArenaArc<T> {
 
         ArenaArc { block }
     }
+
+    pub fn strong_count(&self) -> usize {
+        unsafe { self.block.as_ref() }.counter.load(Relaxed)
+    }
 }
 
 impl<T> Clone for ArenaArc<T> {
